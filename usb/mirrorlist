@@ -1,0 +1,6 @@
+# 清华大学
+Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch
+# 中国科学技术大学
+Server = https://mirrors.ustc.edu.cn/archlinux/$repo/os/$arch
+# 阿里云
+Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch

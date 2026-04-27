@@ -1,0 +1,53 @@
+# 在提示符之间插入空行
+add_newline = true
+
+format = """
+[](bold #bd93f9) $os$username$hostname$directory$git_branch$git_status\
+$golang$c$rust$nodejs$java$python$docker_context$cmd_duration
+$character
+"""
+
+[os]
+disabled = false
+style = "bold #bd93f9"
+
+[os.symbols]
+Arch = "󰣇 "
+Linux = "󰌽 "
+
+[username]
+show_always = true
+style_user = "bold #bd93f9"
+format = "[$user]($style) "
+
+[hostname]
+ssh_only = false
+style = "bold #e8e3ff"
+format = "on [󰌢 $hostname]($style) "
+
+[directory]
+style = "bold #bd93f9"
+truncation_length = 3
+truncation_symbol = "…/"
+format = "at [$path]($style) "
+
+[golang]
+symbol = " "
+
+[c]
+symbol = " "
+
+[rust]
+symbol = " "
+
+[nodejs]
+symbol = " "
+
+[java]
+symbol = " "
+
+[python]
+symbol = " "
+
+[docker_context]
+symbol = " "

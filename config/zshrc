@@ -1,0 +1,70 @@
+# =============================================================================
+# .zshrc
+# =============================================================================
+
+# ── 历史记录 ──────────────────────────────────────────────────────────────────
+HISTFILE="$HOME/.zsh_history"
+HISTSIZE=10000
+SAVEHIST=10000
+setopt HIST_IGNORE_DUPS       # 不记录重复命令
+setopt HIST_IGNORE_SPACE      # 以空格开头的命令不记录
+setopt HIST_VERIFY            # 历史展开时先确认
+setopt SHARE_HISTORY          # 多终端共享历史
+
+# ── 补全 ─────────────────────────────────────────────────────────────────────
+autoload -Uz compinit && compinit
+setopt AUTO_MENU              # Tab 显示补全菜单
+setopt COMPLETE_IN_WORD       # 光标在词中间也能补全
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'  # 补全忽略大小写
+
+# ── 目录 ─────────────────────────────────────────────────────────────────────
+setopt AUTO_CD                # 直接输入目录名就 cd
+setopt AUTO_PUSHD             # cd 自动入栈
+setopt PUSHD_IGNORE_DUPS      # 栈里不保留重复目录
+
+# ── 编辑器 ───────────────────────────────────────────────────────────────────
+export EDITOR=nvim
+export VISUAL=nvim
+
+# ── 别名 ─────────────────────────────────────────────────────────────────────
+# ── lsd 替代 ls ─────────────────────────────
+alias ls='lsd'
+alias ll='lsd -l'
+alias la='lsd -la'
+alias lt='lsd --tree'
+
+# ── 编辑器 ──────────────────────────────────
+alias vi='nvim'
+alias vim='nvim'
+
+# ── 常用操作 ────────────────────────────────
+alias ..='cd ..'
+alias ...='cd ../..'
+alias cp='cp -i'
+alias mv='mv -i'
+alias rm='rm -i'
+alias rmr='rm -ir'
+
+# ── 键绑定 ───────────────────────────────────────────────────────────────────
+bindkey -e                              # Emacs 模式（Ctrl-A/E 等）
+bindkey '^[[Z' reverse-menu-complete    # Shift+Tab 在补全菜单中往回选
+
+# ── Starship 提示符 ──────────────────────────────────────────────────────────
+eval "$(starship init zsh)"
+
+# ── Zoxide ───────────────────────────────────────────────────────────────────
+eval "$(zoxide init zsh)"
+
+# ── 插件 ─────────────────────────────────────────────────────────────────────
+_zsh_plugin_dir="$HOME/.zsh/plugins"
+
+[[ -f "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] &&
+    source "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh"
+
+[[ -f "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-search.zsh" ]] &&
+    source "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-search.zsh"
+
+# syntax-highlighting 必须最后 source
+[[ -f "$_zsh_plugin_dir/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] &&
+    source "$_zsh_plugin_dir/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
