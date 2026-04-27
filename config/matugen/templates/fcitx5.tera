@@ -1,0 +1,48 @@
+# 由 matugen 自动生成，请勿手动编辑
+# 模板源：config/matugen/templates/fcitx5.tera
+
+[Metadata]
+Name=dms
+Version=1
+Author=matugen
+Description=Material You dynamic theme for fcitx5
+
+[NormalColor]
+Color={{ colors.surface_container.default.hex_stripped }}
+Alpha=242
+
+[HighlightColor]
+Color={{ colors.primary.default.hex_stripped }}
+Alpha=255
+
+[HighlightCandidateColor]
+Color={{ colors.primary_container.default.hex_stripped }}
+Alpha=255
+
+[NormalText]
+Color={{ colors.on_surface.default.hex_stripped }}
+
+[HighlightText]
+Color={{ colors.on_primary.default.hex_stripped }}
+
+[HighlightLabelText]
+Color={{ colors.on_primary_container.default.hex_stripped }}
+
+[NormalLabel]
+Color={{ colors.secondary.default.hex_stripped }}
+
+[Outline]
+Color={{ colors.outline_variant.default.hex_stripped }}
+Alpha=180
+
+[ContentMargin]
+Left=5
+Right=5
+Top=5
+Bottom=5
+
+[TextMargin]
+Left=5
+Right=5
+Top=3
+Bottom=3

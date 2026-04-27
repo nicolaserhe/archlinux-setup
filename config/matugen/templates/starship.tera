@@ -1,0 +1,55 @@
+# 由 matugen 自动生成，请勿手动编辑
+# 模板源：config/matugen/templates/starship.tera
+
+add_newline = true
+
+format = """
+[](bold #{{ colors.primary.default.hex_stripped }}) $os$username$hostname$directory$git_branch$git_status\
+$golang$c$rust$nodejs$java$python$docker_context$cmd_duration
+$character
+"""
+
+[os]
+disabled = false
+style = "bold #{{ colors.primary.default.hex_stripped }}"
+
+[os.symbols]
+Arch = "󰣇 "
+Linux = "󰌽 "
+
+[username]
+show_always = true
+style_user = "bold #{{ colors.primary.default.hex_stripped }}"
+format = "[$user]($style) "
+
+[hostname]
+ssh_only = false
+style = "bold #{{ colors.on_primary_container.default.hex_stripped }}"
+format = "on [󰌢 $hostname]($style) "
+
+[directory]
+style = "bold #{{ colors.primary.default.hex_stripped }}"
+truncation_length = 3
+truncation_symbol = "…/"
+format = "at [$path]($style) "
+
+[golang]
+symbol = " "
+
+[c]
+symbol = " "
+
+[rust]
+symbol = " "
+
+[nodejs]
+symbol = " "
+
+[java]
+symbol = " "
+
+[python]
+symbol = " "
+
+[docker_context]
+symbol = " "
