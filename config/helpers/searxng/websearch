@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# websearch — query local SearXNG and print top results as plain text.
+# Usage:
+#   websearch <query>                    # default 10 results
+#   websearch -n 5 <query>               # limit to 5
+#   websearch -c it <query>              # category: general|images|videos|news|map|music|it|science|files
+#   websearch --json <query>             # raw JSON passthrough
+#
+# SearXNG endpoint defaults to http://127.0.0.1:8888 (override with $SEARXNG_URL).
+
+set -euo pipefail
+
+ENDPOINT="${SEARXNG_URL:-http://127.0.0.1:8888}"
+LIMIT=10
+CATEGORY="general"
+RAW=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--limit) LIMIT="$2"; shift 2 ;;
+    -c|--category) CATEGORY="$2"; shift 2 ;;
+    --json) RAW=1; shift ;;
+    -h|--help)
+      sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    --) shift; break ;;
+    -*) echo "unknown flag: $1" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+if [[ $# -eq 0 ]]; then
+  echo "usage: websearch [-n N] [-c CATEGORY] [--json] <query>" >&2
+  exit 2
+fi
+
+QUERY="$*"
+
+RESPONSE=$(curl -fsS -G --max-time 25 \
+  --data-urlencode "q=${QUERY}" \
+  --data-urlencode "format=json" \
+  --data-urlencode "categories=${CATEGORY}" \
+  "${ENDPOINT}/search") || {
+    echo "websearch: request to ${ENDPOINT} failed" >&2
+    exit 1
+  }
+
+if [[ $RAW -eq 1 ]]; then
+  printf '%s\n' "$RESPONSE"
+  exit 0
+fi
+
+printf '%s' "$RESPONSE" | jq -r --argjson n "$LIMIT" '
+  def trim(s; n): if (s | length) > n then s[0:n] + "…" else s end;
+
+  ( .infoboxes // [] ) as $ib
+  | ( .answers // [] ) as $ans
+  | ( .results // [] ) as $r
+  | ( .unresponsive_engines // [] ) as $dead
+
+  | (if ($ans | length) > 0 then
+      "## Answers\n" + ( $ans | map("- " + (.answer // .)) | join("\n") ) + "\n"
+    else "" end)
+  + (if ($ib | length) > 0 then
+      "## Infobox\n" + ( $ib | map("- " + .infobox + ": " + trim(.content // ""; 240)) | join("\n") ) + "\n"
+    else "" end)
+  + (if ($r | length) > 0 then
+      "## Results\n" + (
+        $r[0:$n]
+        | to_entries
+        | map(
+            "[" + ((.key+1) | tostring) + "] " + (.value.title // "(no title)") + "\n"
+            + "    " + (.value.url // "") + "\n"
+            + (if (.value.content // "") != "" then
+                "    " + trim(.value.content; 280) + "\n"
+              else "" end)
+            + "    — engine: " + ((.value.engine // (.value.engines // ["?"] | join(","))) | tostring)
+          )
+        | join("\n\n")
+      )
+    else "## Results\n(no results)" end)
+  + (if ($dead | length) > 0 then
+      "\n\n## Unresponsive engines\n" + ( $dead | map("- " + (.[0]) + ": " + (.[1])) | join("\n") )
+    else "" end)
+'

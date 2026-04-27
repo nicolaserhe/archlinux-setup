@@ -1,0 +1,25 @@
+usb/sub2clash/files
+__pycache__/
+*.pyc
+
+# logs
+*.log
+logs/
+log/
+*.out
+
+# playwright-mcp 调用时自动写到 cwd 的 accessibility 快照 / console 日志
+.playwright-mcp/
+
+# temporary data
+tmp/
+temp/
+temp_data/
+*.tmp
+*.temp
+*.bak
+
+# vim swap files
+*.swp
+*.swo
+*~

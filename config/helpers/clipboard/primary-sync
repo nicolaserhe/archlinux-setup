@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""
+primary-sync — universal selection sync daemon.
+
+Synchronises three text selections in real time:
+
+    Wayland CLIPBOARD  ↔  Wayland PRIMARY  ↔  X11 PRIMARY
+
+Any copy method (text selection / Ctrl+C / middle-click source) in any app
+becomes available in every paste method (middle-click / Ctrl+V) in every
+app — Wayland-native, XWayland, or X11.
+
+Event-driven (no polling). Three event sources:
+  * wl-paste --watch                — Wayland CLIPBOARD changes
+  * wl-paste --primary --watch      — Wayland PRIMARY changes
+  * XFIXES SelectSelectionInput     — X11 PRIMARY ownership changes
+
+multicliprelay separately handles Wayland CLIPBOARD ↔ X11 CLIPBOARD (incl.
+images and rich MIME). This daemon fills the PRIMARY gaps that
+multicliprelay and xwayland-satellite do not cover.
+
+Text only — PRIMARY in practice carries selected text. Images / file URIs
+flow through CLIPBOARD and are handled by multicliprelay (+ wechat-uri-fix
+for the X11 file-paste edge case).
+
+Uninstall
+---------
+    systemctl --user disable --now primary-sync.service
+    sudo rm /usr/local/bin/primary-sync
+    rm  ~/.config/systemd/user/primary-sync.service
+"""
+
+import logging
+import os
+import select
+import signal
+import subprocess
+import sys
+import time
+
+from Xlib import display, Xatom
+from Xlib.ext import xfixes
+
+LOG = logging.getLogger("primary-sync")
+
+
+class PrimarySync:
+    def __init__(self):
+        # === X11 + XFIXES ===
+        self.dpy = display.Display()
+        if not self.dpy.has_extension("XFIXES"):
+            raise RuntimeError("X server lacks XFIXES extension")
+        # Trigger lazy-init of the xfixes extension methods.
+        self.dpy.xfixes_query_version()
+        self.root = self.dpy.screen().root
+        self.PRIMARY = Xatom.PRIMARY  # atom = 1
+        self.dpy.xfixes_select_selection_input(
+            self.root,
+            self.PRIMARY,
+            xfixes.XFixesSetSelectionOwnerNotifyMask
+            | xfixes.XFixesSelectionWindowDestroyNotifyMask
+            | xfixes.XFixesSelectionClientCloseNotifyMask,
+        )
+        self.dpy.flush()
+
+        # === Wayland watchers (event sources) ===
+        # `cat >/dev/null` drains stdin so wl-paste doesn't SIGPIPE when
+        # piping binary into a sh that doesn't read it. We only care that
+        # *something* gets written to our stdout pipe per change.
+        self.wl_clip = subprocess.Popen(
+            ["wl-paste", "--watch", "sh", "-c", "cat >/dev/null 2>&1; echo C"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        self.wl_pri = subprocess.Popen(
+            ["wl-paste", "--primary", "--watch", "sh", "-c", "cat >/dev/null 2>&1; echo P"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+
+        # === State: last seen value per source ===
+        # Updated BEFORE we write into the other two sources, so the resulting
+        # change events see `cur == last[source]` and short-circuit.
+        # This is how we prevent the feedback loop.
+        self.last = {"clip": b"", "wlp": b"", "x11p": b""}
+
+        signal.signal(signal.SIGTERM, self._on_signal)
+        signal.signal(signal.SIGINT, self._on_signal)
+
+    def _on_signal(self, *_):
+        LOG.info("signal, shutting down")
+        self.shutdown()
+        sys.exit(0)
+
+    def shutdown(self):
+        for p in (getattr(self, "wl_clip", None), getattr(self, "wl_pri", None)):
+            if p and p.poll() is None:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+
+    # ---- I/O helpers (text/plain, byte-precise via subprocess pipes) ----
+
+    @staticmethod
+    def _capture(cmd):
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=5)
+            return r.stdout if r.returncode == 0 else b""
+        except Exception as e:
+            LOG.debug("%s: %s", cmd[0], e)
+            return b""
+
+    @staticmethod
+    def _feed(cmd, data):
+        try:
+            subprocess.run(
+                cmd, input=data, timeout=5,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            LOG.debug("%s: %s", cmd[0], e)
+
+    def _get_clip(self):
+        return self._capture(["wl-paste", "--no-newline"])
+
+    def _get_wlp(self):
+        return self._capture(["wl-paste", "--primary", "--no-newline"])
+
+    def _get_x11p(self):
+        return self._capture(["xclip", "-o", "-selection", "primary"])
+
+    def _set_clip(self, d): self._feed(["wl-copy"], d)
+    def _set_wlp(self, d):  self._feed(["wl-copy", "--primary"], d)
+    def _set_x11p(self, d): self._feed(["xclip", "-selection", "primary", "-in"], d)
+
+    # ---- Change handlers ----
+
+    def _propagate(self, source, value):
+        """Mark `value` as seen on all three sources, then write to the two
+        that did not originate it."""
+        self.last["clip"] = value
+        self.last["wlp"] = value
+        self.last["x11p"] = value
+        if source != "clip": self._set_clip(value)
+        if source != "wlp":  self._set_wlp(value)
+        if source != "x11p": self._set_x11p(value)
+        LOG.info("%s changed (%d bytes) → synced", source, len(value))
+
+    def _on_clip(self):
+        cur = self._get_clip()
+        if cur and cur != self.last["clip"]:
+            self._propagate("clip", cur)
+
+    def _on_wlp(self):
+        cur = self._get_wlp()
+        if cur and cur != self.last["wlp"]:
+            self._propagate("wlp", cur)
+
+    def _on_x11p(self):
+        cur = self._get_x11p()
+        if cur and cur != self.last["x11p"]:
+            self._propagate("x11p", cur)
+
+    # ---- Event loop ----
+
+    def run(self):
+        # Initial snapshot — record current state without propagating, so
+        # we don't surprise the user with writes at daemon start. First real
+        # user action triggers the first sync.
+        self.last["clip"] = self._get_clip()
+        self.last["wlp"] = self._get_wlp()
+        self.last["x11p"] = self._get_x11p()
+
+        xfd = self.dpy.fileno()
+        cfd = self.wl_clip.stdout.fileno()
+        pfd = self.wl_pri.stdout.fileno()
+
+        while True:
+            try:
+                r, _, _ = select.select([xfd, cfd, pfd], [], [])
+            except InterruptedError:
+                continue
+
+            if cfd in r:
+                if not self.wl_clip.stdout.readline():
+                    LOG.error("wl-paste --watch (CLIPBOARD) died, exit for restart")
+                    return 1
+                self._on_clip()
+
+            if pfd in r:
+                if not self.wl_pri.stdout.readline():
+                    LOG.error("wl-paste --primary --watch died, exit for restart")
+                    return 1
+                self._on_wlp()
+
+            if xfd in r:
+                # Drain all pending XFIXES events; selection attr indicates
+                # PRIMARY since we only subscribed to that atom.
+                while self.dpy.pending_events():
+                    ev = self.dpy.next_event()
+                    if getattr(ev, "selection", None) == self.PRIMARY:
+                        self._on_x11p()
+
+
+def main():
+    logging.basicConfig(
+        level=os.environ.get("PRIMARY_SYNC_LOG", "INFO"),
+        format="%(levelname)s %(message)s",
+        stream=sys.stderr,
+    )
+
+    # Early SIGTERM handler — active during the X11/Wayland wait loop below
+    # so `systemctl stop` exits in <1s instead of waiting for SIGKILL.
+    stop = {"flag": False}
+    def _early_term(*_):
+        stop["flag"] = True
+    signal.signal(signal.SIGTERM, _early_term)
+    signal.signal(signal.SIGINT, _early_term)
+
+    # X11/Wayland may not be ready when the daemon first starts — typical
+    # cases: install.sh in a TTY (sockets don't exist yet) or pre-niri stage
+    # of graphical-session.target. We retry forever instead of exiting so:
+    #   * Type=simple ExecStart fork succeeds → systemctl restart returns 0
+    #     immediately → install.sh's `set -e` doesn't trip
+    #   * once niri brings up the sockets, the next attempt succeeds and we
+    #     enter the steady-state event loop
+    # No ExecStartPre needed on the systemd unit — this loop replaces it.
+    daemon = None
+    first_fail = True
+    while daemon is None:
+        if stop["flag"]:
+            sys.exit(0)
+        try:
+            daemon = PrimarySync()
+        except Exception as e:
+            if first_fail:
+                LOG.info("display not ready (%s), retrying every 5s", e)
+                first_fail = False
+            else:
+                LOG.debug("display still not ready: %s", e)
+            time.sleep(5)
+
+    rc = 0
+    try:
+        rc = daemon.run() or 0
+    finally:
+        daemon.shutdown()
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()

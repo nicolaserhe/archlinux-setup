@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PID_FILE=/tmp/gsr-record.pid
+OUT_DIR="$HOME/Videos"
+PORTAL_STATE="$HOME/.config/gpu-screen-recorder"
+
+if [[ -f $PID_FILE ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    kill -INT "$(cat "$PID_FILE")"
+    rm -f "$PID_FILE"
+    notify-send "Screen recording" "Stopped"
+else
+    mkdir -p "$OUT_DIR" "$PORTAL_STATE"
+    OUT="$OUT_DIR/rec-$(date +%Y%m%d-%H%M%S).mp4"
+    setsid -f gpu-screen-recorder \
+        -w screen -c mp4 -f 60 -k auto -ac opus \
+        -a default_output -cursor yes -restore-portal-session yes \
+        -ro "$PORTAL_STATE" -o "$OUT"
+    echo $! > "$PID_FILE"
+    notify-send "Screen recording" "Started"
+fi

@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""
+wechat-uri-fix — Wayland → X11 CLIPBOARD compatibility shim for WeChat.
+
+Problem
+-------
+WeChat Flatpak runs as a pure X11 client (sockets=x11, QT_QPA_PLATFORM=xcb,
+custom RadiumWMPF renderer). When pasting it asks the X11 CLIPBOARD selection
+for `text/plain` first. The X11 protocol auto-synthesises `text/plain` from
+`text/uri-list` (returning the URI string itself), so copying a file in
+Nautilus/Dolphin/etc pastes as the file path text instead of as a file.
+
+Compatibility layer
+-------------------
+This daemon watches the Wayland clipboard. Whenever it contains
+`text/uri-list`, it takes over X11 CLIPBOARD ownership and exposes only
+file-related targets:
+
+    TARGETS, TIMESTAMP, text/uri-list, x-special/gnome-copied-files
+
+All text/plain / STRING / UTF8_STRING / TEXT requests are explicitly refused
+(SelectionNotify with property=None). WeChat falls back to `text/uri-list`
+and correctly pastes as files. When the clipboard switches back to non-file
+content, the daemon releases ownership; multicliprelay handles regular sync.
+
+Self-contained — when WeChat fixes its paste path or migrates to a Wayland-
+native client, remove with:
+
+    systemctl --user disable --now wechat-uri-fix.service
+    sudo rm /usr/local/bin/wechat-uri-fix
+    rm  ~/.config/systemd/user/wechat-uri-fix.service
+    # also drop the wechat-uri-fix block from scripts/core/clipboard.sh
+"""
+
+import logging
+import os
+import select
+import signal
+import subprocess
+import sys
+import time
+from contextlib import suppress
+
+from Xlib import X, Xatom, display
+from Xlib.protocol.event import SelectionNotify
+
+LOG = logging.getLogger("wechat-uri-fix")
+
+# 只暴露 file-related targets。不加 text/plain / UTF8_STRING，
+# 否则 WeChat 优先读 text/plain 粘贴路径文本而非文件。
+# 只留 text/uri-list 逼 WeChat 读文件 URI → 正确粘贴为文件。
+SERVE_TARGETS = (
+    "TARGETS",
+    "TIMESTAMP",
+    "text/uri-list",
+    "x-special/gnome-copied-files",  # Nautilus 风格 "copy\n<uri>"
+)
+
+
+class Daemon:
+    def __init__(self):
+        self.dpy = display.Display()
+        root = self.dpy.screen().root
+        # InputOnly 窗口、置于屏幕外 — 仅作为 selection owner 锚点
+        self.win = root.create_window(
+            -10, -10, 1, 1, 0, 0,
+            X.InputOnly, X.CopyFromParent,
+            event_mask=X.PropertyChangeMask,
+        )
+        self.atoms = {n: self.dpy.intern_atom(n) for n in (
+            "CLIPBOARD", "TARGETS", "TIMESTAMP",
+            "text/uri-list", "x-special/gnome-copied-files",
+        )}
+        self.CLIP = self.atoms["CLIPBOARD"]
+        self.owned = False
+        self.uri_data = b""
+        self.timestamp = 0
+        self.releasing = False  # True: text/uri-list gone, yield ownership gracefully
+
+        # wl-paste --watch 作为事件源。sh 先 cat >/dev/null 消耗 stdin（避免
+        # wl-paste 把大图片写进 sh 的 stdin 触发 SIGPIPE），再 echo 一行通知。
+        self.wl_proc = subprocess.Popen(
+            ["wl-paste", "--watch", "sh", "-c", "cat >/dev/null 2>&1; echo"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+
+        signal.signal(signal.SIGTERM, self._on_signal)
+        signal.signal(signal.SIGINT, self._on_signal)
+
+    def _on_signal(self, signum, _frame):
+        LOG.info("signal %d, shutting down", signum)
+        self.shutdown()
+        sys.exit(0)
+
+    def shutdown(self):
+        if self.owned:
+            self._release()
+        with suppress(Exception):
+            if self.wl_proc and self.wl_proc.poll() is None:
+                self.wl_proc.terminate()
+
+    @staticmethod
+    def _wl_types():
+        try:
+            r = subprocess.run(
+                ["wl-paste", "--list-types"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception as e:
+            LOG.warning("wl-paste --list-types: %s", e)
+            return set()
+        return set(r.stdout.split()) if r.returncode == 0 else set()
+
+    @staticmethod
+    def _wl_get(mime):
+        try:
+            r = subprocess.run(
+                ["wl-paste", "-t", mime],
+                capture_output=True, timeout=5,
+            )
+        except Exception as e:
+            LOG.warning("wl-paste -t %s: %s", mime, e)
+            return b""
+        return r.stdout if r.returncode == 0 else b""
+
+    def _grab(self, uri):
+        self.uri_data = uri
+        self.timestamp = int(time.time()) & 0xFFFFFFFF
+        self.releasing = False  # re-arm: text/uri-list is present, fight for ownership
+        self.win.set_selection_owner(self.CLIP, X.CurrentTime)
+        self.dpy.flush()
+        self.owned = (self.dpy.get_selection_owner(self.CLIP) == self.win)
+        if self.owned:
+            LOG.info("X11 CLIPBOARD owned (%d bytes text/uri-list)", len(uri))
+        else:
+            LOG.warning("X11 CLIPBOARD grab failed")
+
+    def _release(self):
+        # Don't release ownership actively — that creates an empty-owner
+        # window ( ~1s ) where WeChat paste finds nothing.
+        # Instead, set the releasing flag; when multicliprelay
+        # takes ownership we get SelectionClear and won't re-grab.
+        self.releasing = True
+        self.uri_data = b""
+        LOG.info("X11 CLIPBOARD yielding (text/uri-list gone, "
+                 "waiting for multicliprelay to take over)")
+
+    def _refresh(self):
+        types = self._wl_types()
+        if "text/uri-list" in types:
+            uri = self._wl_get("text/uri-list")
+            if uri and (uri != self.uri_data or not self.owned):
+                self._grab(uri)
+        elif self.owned:
+            self._release()
+
+    def _serve(self, ev):
+        target = ev.target
+        prop = ev.property if ev.property != X.NONE else target
+        granted = False
+
+        if target == self.atoms["TARGETS"]:
+            atoms = [self.atoms[n] for n in SERVE_TARGETS]
+            ev.requestor.change_property(prop, Xatom.ATOM, 32, atoms)
+            granted = True
+        elif target == self.atoms["TIMESTAMP"]:
+            ev.requestor.change_property(prop, Xatom.INTEGER, 32, [self.timestamp])
+            granted = True
+        elif target == self.atoms["text/uri-list"]:
+            ev.requestor.change_property(prop, target, 8, self.uri_data)
+            granted = True
+        elif target == self.atoms["x-special/gnome-copied-files"]:
+            ev.requestor.change_property(prop, target, 8, b"copy\n" + self.uri_data)
+            granted = True
+        # 不加 text/plain / UTF8_STRING handler — 不在 TARGETS 中列出
+        # 即是拒绝。如需对其他 target 保底，在此加 elif。
+        # 未识别的 target → 不写 property，发 property=None 拒绝
+
+        ev.requestor.send_event(SelectionNotify(
+            time=ev.time, requestor=ev.requestor, selection=ev.selection,
+            target=ev.target, property=prop if granted else X.NONE,
+        ))
+        self.dpy.flush()
+
+        if LOG.isEnabledFor(logging.DEBUG):
+            name = self.dpy.get_atom_name(target)
+            LOG.debug("request target=%s → %s", name, "ok" if granted else "refuse")
+
+    def _handle(self, ev):
+        if ev.type == X.SelectionRequest:
+            self._serve(ev)
+        elif ev.type == X.SelectionClear:
+            # When releasing, let multicliprelay take over without fight
+            if self.releasing:
+                self.owned = False
+                LOG.info("SelectionClear: yielded to multicliprelay (releasing)")
+                return
+            if not self.uri_data:
+                self.owned = False
+                return
+            LOG.info("SelectionClear: re-grabbing X11 CLIPBOARD")
+            time.sleep(0.05)
+            self.win.set_selection_owner(self.CLIP, X.CurrentTime)
+            self.dpy.flush()
+            self.owned = (self.dpy.get_selection_owner(self.CLIP) == self.win)
+
+    def run(self):
+        # 启动时主动同步一次（wl-paste --watch 不保证立即触发首次事件）
+        self._refresh()
+        xfd = self.dpy.fileno()
+        wfd = self.wl_proc.stdout.fileno()
+        while True:
+            try:
+                r, _, _ = select.select([xfd, wfd], [], [])
+            except InterruptedError:
+                continue
+            if wfd in r:
+                line = self.wl_proc.stdout.readline()
+                if not line:
+                    LOG.error("wl-paste --watch died, exit for systemd restart")
+                    return 1
+                self._refresh()
+            if xfd in r:
+                while self.dpy.pending_events():
+                    self._handle(self.dpy.next_event())
+
+
+def main():
+    logging.basicConfig(
+        level=os.environ.get("WECHAT_URI_FIX_LOG", "INFO"),
+        format="%(levelname)s %(message)s",
+        stream=sys.stderr,
+    )
+
+    # Early SIGTERM handler — active during the X11/Wayland wait loop below
+    # so `systemctl stop` exits promptly.
+    stop = {"flag": False}
+    def _early_term(*_):
+        stop["flag"] = True
+    signal.signal(signal.SIGTERM, _early_term)
+    signal.signal(signal.SIGINT, _early_term)
+
+    # X11/Wayland may not be ready when the daemon first starts — typical
+    # cases: install.sh in a TTY (sockets don't exist yet) or pre-niri stage
+    # of graphical-session.target. Retry forever; this replaces a systemd
+    # ExecStartPre and keeps install.sh's `set -e` from tripping.
+    daemon = None
+    first_fail = True
+    while daemon is None:
+        if stop["flag"]:
+            sys.exit(0)
+        try:
+            daemon = Daemon()
+        except Exception as e:
+            if first_fail:
+                LOG.info("display not ready (%s), retrying every 5s", e)
+                first_fail = False
+            else:
+                LOG.debug("display still not ready: %s", e)
+            time.sleep(5)
+
+    rc = 0
+    try:
+        rc = daemon.run() or 0
+    finally:
+        daemon.shutdown()
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,111 @@
+// =============================================================================
+// dms/binds.kdl -- niri keybindings (default DMS integration)
+//
+// dms setup v1.4.6+ no longer populates this file, so it is shipped here.
+// Deploy: dms.sh copies this to ~/.config/niri/dms/binds.kdl
+// Namespace convention: niri default Mod = Super
+// =============================================================================
+
+binds {
+    // ── DMS shell ────────────────────────────────────────────────────────────
+    Mod+Space  hotkey-overlay-title="Launcher"          { spawn "dms" "ipc" "launcher" "toggle"; }
+    Mod+Comma  hotkey-overlay-title="DMS Settings"      { spawn "dms" "ipc" "settings" "toggle"; }
+    Mod+N      hotkey-overlay-title="Notifications"     { spawn "dms" "ipc" "notifications" "toggle"; }
+    Mod+M      hotkey-overlay-title="Control Center"    { spawn "dms" "ipc" "control-center" "toggle"; }
+    Mod+V      hotkey-overlay-title="Clipboard"         { spawn "dms" "ipc" "clipboard" "toggle"; }
+    Mod+P      hotkey-overlay-title="Power Menu"        { spawn "dms" "ipc" "powermenu" "toggle"; }
+    Mod+Slash  hotkey-overlay-title="Keybind Cheatsheet" { spawn "dms" "ipc" "keybinds" "toggle" "niri"; }
+    Mod+Caps_Lock hotkey-overlay-title="Lock Screen"       { spawn "dms" "ipc" "lock" "lock"; }
+
+    // ── Apps ─────────────────────────────────────────────────────────────────
+    Mod+Return hotkey-overlay-title="Terminal"          { spawn "alacritty"; }
+    Mod+E      hotkey-overlay-title="Files"             { spawn "nautilus"; }
+
+    // ── Screenshot (DMS built-in, uses grim+slurp) ───────────────────────────
+    Print           hotkey-overlay-title="Screenshot Region"  { spawn "dms" "screenshot"; }
+    Mod+Print       hotkey-overlay-title="Screenshot Full"    { spawn "dms" "screenshot" "full"; }
+    Shift+Print     hotkey-overlay-title="Screenshot All"     { spawn "dms" "screenshot" "all"; }
+    Ctrl+Print      hotkey-overlay-title="Screenshot Window"  { spawn "dms" "screenshot" "window"; }
+
+    // ── Screen recording (gpu-screen-recorder) ───────────────────────────────
+    Alt+Print       hotkey-overlay-title="Toggle Recording"   { spawn "gsr-toggle"; }
+
+    // ── Window ───────────────────────────────────────────────────────────────
+    Mod+D       hotkey-overlay-title="Overview"               { toggle-overview; }
+    Mod+Q       hotkey-overlay-title="Close Window"          { close-window; }
+    Mod+F       hotkey-overlay-title="Maximize Column"       { maximize-column; }
+    Mod+Shift+F hotkey-overlay-title="Fullscreen"            { fullscreen-window; }
+    Mod+T       hotkey-overlay-title="Toggle Floating"       { toggle-window-floating; }
+    Mod+R       hotkey-overlay-title="Cycle Column Width"    { switch-preset-column-width; }
+    Mod+Shift+R hotkey-overlay-title="Reset Window Height"   { reset-window-height; }
+
+    // ── Focus navigation ─────────────────────────────────────────────────────
+    Mod+H { focus-column-left; }
+    Mod+J { focus-workspace-down; }
+    Mod+K { focus-workspace-up; }
+    Mod+L { focus-column-right; }
+    Mod+Left  { focus-column-left; }
+    Mod+Down  { focus-window-down; }
+    Mod+Up    { focus-window-up; }
+    Mod+Right { focus-column-right; }
+
+    // ── Move window/column ───────────────────────────────────────────────────
+    Mod+Shift+H { move-column-left; }
+    Mod+Shift+J { move-window-down; }
+    Mod+Shift+K { move-window-up; }
+    Mod+Shift+L { move-column-right; }
+    Mod+Ctrl+H  { focus-monitor-left; }
+    Mod+Ctrl+J  { focus-monitor-down; }
+    Mod+Ctrl+K  { focus-monitor-up; }
+    Mod+Ctrl+L  { focus-monitor-right; }
+
+    // ── Resize ───────────────────────────────────────────────────────────────
+    Mod+Minus      { set-column-width "-10%"; }
+    Mod+Equal      { set-column-width "+10%"; }
+    Mod+Shift+Minus { set-window-height "-10%"; }
+    Mod+Shift+Equal { set-window-height "+10%"; }
+
+    // ── Workspaces ───────────────────────────────────────────────────────────
+    Mod+Page_Up   { focus-workspace-up; }
+    Mod+Page_Down { focus-workspace-down; }
+    Mod+Tab       { focus-workspace-previous; }
+    Mod+1 { focus-workspace 1; }
+    Mod+2 { focus-workspace 2; }
+    Mod+3 { focus-workspace 3; }
+    Mod+4 { focus-workspace 4; }
+    Mod+5 { focus-workspace 5; }
+    Mod+6 { focus-workspace 6; }
+    Mod+7 { focus-workspace 7; }
+    Mod+8 { focus-workspace 8; }
+    Mod+9 { focus-workspace 9; }
+    Mod+Shift+1 { move-column-to-workspace 1; }
+    Mod+Shift+2 { move-column-to-workspace 2; }
+    Mod+Shift+3 { move-column-to-workspace 3; }
+    Mod+Shift+4 { move-column-to-workspace 4; }
+    Mod+Shift+5 { move-column-to-workspace 5; }
+    Mod+Shift+6 { move-column-to-workspace 6; }
+    Mod+Shift+7 { move-column-to-workspace 7; }
+    Mod+Shift+8 { move-column-to-workspace 8; }
+    Mod+Shift+9 { move-column-to-workspace 9; }
+
+    // ── Scroll to switch workspace ────────────────────────────────────────────
+    Mod+WheelScrollDown      cooldown-ms=150 { focus-column-right; }
+    Mod+WheelScrollUp        cooldown-ms=150 { focus-column-left; }
+    Mod+Shift+WheelScrollDown cooldown-ms=150 { focus-workspace-down; }
+    Mod+Shift+WheelScrollUp   cooldown-ms=150 { focus-workspace-up; }
+
+    // ── Media keys ───────────────────────────────────────────────────────────
+    XF86AudioRaiseVolume allow-when-locked=true { spawn "dms" "ipc" "audio" "increment" "5"; }
+    XF86AudioLowerVolume allow-when-locked=true { spawn "dms" "ipc" "audio" "decrement" "5"; }
+    XF86AudioMute        allow-when-locked=true { spawn "dms" "ipc" "audio" "mute"; }
+    XF86AudioMicMute     allow-when-locked=true { spawn "dms" "ipc" "audio" "micmute"; }
+    XF86MonBrightnessUp   allow-when-locked=true { spawn "dms-brightness" "increment"; }
+    XF86MonBrightnessDown allow-when-locked=true { spawn "dms-brightness" "decrement"; }
+    XF86AudioPlay  { spawn "dms" "ipc" "mpris" "playPause"; }
+    XF86AudioPause { spawn "dms" "ipc" "mpris" "playPause"; }
+    XF86AudioNext  { spawn "dms" "ipc" "mpris" "next"; }
+    XF86AudioPrev  { spawn "dms" "ipc" "mpris" "previous"; }
+
+    // ── Quit session ─────────────────────────────────────────────────────────
+    Mod+Shift+Q hotkey-overlay-title="Quit niri" { quit; }
+}

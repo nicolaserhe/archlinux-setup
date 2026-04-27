@@ -1,0 +1,29 @@
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    # host network 让容器内的 127.0.0.1 = 宿主 127.0.0.1，
+    # 直接访问 FlClash 7890；用 bridge + extra_hosts 时 host.docker.internal
+    # 走 docker0 IP，但 FlClash 只 listen 127.0.0.1，所以不通
+    network_mode: host
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+      # 新版 SearXNG 用 Granian（不是 uwsgi），端口/host 由 GRANIAN_* 控制
+      - GRANIAN_HOST=127.0.0.1
+      - GRANIAN_PORT=8888
+      - GRANIAN_WORKERS=2
+      - GRANIAN_BLOCKING_THREADS=4
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"

@@ -1,0 +1,31 @@
+{
+    "currentThemeName": "dynamic",
+    "launcherLogoMode": "os",
+    "launcherLogoColorOverride": "primary",
+    "controlCenterWidgets": [
+        { "id": "volumeSlider",           "enabled": true, "width": 50 },
+        { "id": "brightnessSlider",       "enabled": true, "width": 50 },
+        { "id": "wifi",                   "enabled": true, "width": 50 },
+        { "id": "bluetooth",              "enabled": true, "width": 50 },
+        { "id": "audioOutput",            "enabled": true, "width": 50 },
+        { "id": "audioInput",             "enabled": true, "width": 50 },
+        { "id": "idleInhibitor",          "enabled": true, "width": 50 },
+        { "id": "battery",                "enabled": true, "width": 50 },
+        {
+            "id": "diskUsage",
+            "enabled": true,
+            "width": 50,
+            "instanceId": "mov4xioqtuuuzx9vz1x0i4p447686",
+            "mountPath": "/"
+        },
+        { "id": "plugin_dankKDEConnect",  "enabled": true, "width": 50 }
+    ],
+    "lockBeforeSuspend": true,
+    "lockScreenPowerOffMonitorsOnLock": true,
+    "lockAtStartup": true,
+    "cursorSettings": {
+        "niri": {
+            "hideWhenTyping": true
+        }
+    }
+}
