@@ -1,0 +1,52 @@
+# 由 matugen 自动生成，请勿手动编辑
+# 模板源：config/matugen/templates/fcitx5.tera
+# 输出  ：~/.local/share/fcitx5/themes/Matugen/theme.conf
+# classicui.conf 里 Theme=Matugen 即引用此目录
+
+[Metadata]
+Name=Matugen
+Version=1
+Author=matugen
+Description=Material You dynamic theme for fcitx5
+ScaleWithDPI=True
+
+[InputPanel]
+NormalColor={{colors.on_surface.default.hex}}
+HighlightColor={{colors.on_primary.default.hex}}
+HighlightBackgroundColor={{colors.primary.default.hex}}
+HighlightCandidateColor={{colors.on_primary.default.hex}}
+EnableBlur=False
+FullWidthHighlight=True
+PageButtonAlignment="Last Candidate"
+
+[InputPanel/Background]
+Color={{colors.surface_container.default.hex}}
+BorderColor={{colors.outline_variant.default.hex}}
+BorderWidth=1
+
+[InputPanel/Background/Margin]
+Left=2
+Right=2
+Top=2
+Bottom=2
+
+[InputPanel/Highlight]
+Color={{colors.primary.default.hex}}
+
+[InputPanel/Highlight/Margin]
+Left=4
+Right=4
+Top=4
+Bottom=4
+
+[InputPanel/ContentMargin]
+Left=2
+Right=2
+Top=2
+Bottom=2
+
+[InputPanel/TextMargin]
+Left=5
+Right=5
+Top=3
+Bottom=3

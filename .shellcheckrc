@@ -1,0 +1,19 @@
+# 目标 shell：所有脚本都用 #!/usr/bin/env bash
+shell=bash
+
+# 跟着 source 关系分析（lib/ 互相 source）。SC1091 已禁，但 external-sources=true
+# 让 shellcheck 在能找到 sourced 文件时仍做跨文件分析（lib/ 文件 path 固定）。
+external-sources=true
+
+# -- 全局启用的可选 check ----------------------------------------------------
+# avoid-nullary-conditions: [ -z "$var" ] 而不是 [ ! "$var" ]，更明确
+# check-unassigned-uppercase: 抓未赋值的 uppercase var
+#
+# 不开 require-variable-braces (SC2250)：在简单 inline 引用（$REPO_DIR/path）
+# 场景下 ${var} 反而 verbose，仓库已是混合风格，强制只是噪音。
+enable=avoid-nullary-conditions,check-unassigned-uppercase
+
+# -- 全局禁用 ----------------------------------------------------------------
+# SC1091: 找不到 sourced file。REPO_DIR 是运行时变量，shellcheck 静态分析无法解析；
+# external-sources=true 已尽力，剩下的没办法。
+disable=SC1091

@@ -1,0 +1,31 @@
+# =============================================================================
+# Alacritty 配置
+# 文档：https://alacritty.org/config-alacritty.html
+# =============================================================================
+
+# DMS 动态主题（matugen 生成，首次 niri 登录后自动更新）
+# general.import = ["~/.config/alacritty/dank-theme.toml"]
+general.import = ["~/.config/alacritty/dracula.toml"]
+
+# ── 字体 ─────────────────────────────────────────────────────────────────────
+[font]
+normal = { family = "Maple Mono NF CN", style = "Regular" }
+bold = { family = "Maple Mono NF CN", style = "Bold" }
+italic = { family = "Maple Mono NF CN", style = "Italic" }
+bold_italic = { family = "Maple Mono NF CN", style = "Bold Italic" }
+# size = 13.0
+
+# ── 窗口 ─────────────────────────────────────────────────────────────────────
+[window]
+padding = { x = 8, y = 6 }
+decorations = "None"
+opacity = 1.0
+
+# ── 滚动 ─────────────────────────────────────────────────────────────────────
+[scrolling]
+history = 10000
+
+# ── 光标 ─────────────────────────────────────────────────────────────────────
+[cursor]
+style = { shape = "Block", blinking = "On" }
+blink_interval = 500
