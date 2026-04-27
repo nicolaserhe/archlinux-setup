@@ -1,0 +1,18 @@
+# =============================================================================
+# matugen 模板配置
+# 每次 `dms matugen generate --value <壁纸>` 时自动处理所有模板。
+# 新增应用配色：在 [config.templates] 下加一个 section 即可。
+# 模板语法：https://keyfabrik.github.io/matugen/docs/usage/templates
+# =============================================================================
+
+[config]
+reload_apps = false   # 重载由各应用自身处理，matugen 不介入
+
+# ── fcitx5 候选框主题 ─────────────────────────────────────────────────────────
+[templates.fcitx5]
+input_path  = "~/.config/matugen/templates/fcitx5.tera"
+output_path = "~/.local/share/fcitx5/themes/dms/theme.conf"
+
+[templates.starship]
+input_path  = "~/.config/matugen/templates/starship.tera"
+output_path = "~/.config/starship.toml"

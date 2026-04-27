@@ -1,0 +1,5 @@
+// 浏览器画中画弹窗自动浮动（Firefox/Chrome/Edge 都用这个 title）
+window-rule {
+    match title="^Picture-in-Picture$"
+    open-floating true
+}

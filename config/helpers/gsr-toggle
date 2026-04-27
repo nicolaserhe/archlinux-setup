@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PID_FILE=/tmp/gsr-record.pid
+OUT_DIR="$HOME/Videos"
+PORTAL_STATE="$HOME/.config/gpu-screen-recorder"
+
+if [[ -f $PID_FILE ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    kill -INT "$(cat "$PID_FILE")"
+    rm -f "$PID_FILE"
+    notify-send "Screen recording" "Stopped"
+else
+    mkdir -p "$OUT_DIR" "$PORTAL_STATE"
+    OUT="$OUT_DIR/rec-$(date +%Y%m%d-%H%M%S).mp4"
+    # 之前用 `setsid -f` + `$!`：setsid -f fork 后父进程立刻退出，$! 拿到的
+    # 是这个父 PID，写到 PID 文件后下一次切换 toggle 时 kill -0 永远失败。
+    # 改用 `& disown`：$! 直接是 gpu-screen-recorder 的 PID，disown 让 shell
+    # 退出时不发 SIGHUP（niri spawn 触发的脚本没 controlling terminal，
+    # SIGHUP 只来自 shell exit 时的 job-control 通知，disown 即可屏蔽）。
+    gpu-screen-recorder \
+        -w screen -c mp4 -f 60 -k auto -ac opus \
+        -a default_output -cursor yes -restore-portal-session yes \
+        -ro "$PORTAL_STATE" -o "$OUT" \
+        </dev/null >/dev/null 2>&1 &
+    echo $! > "$PID_FILE"
+    disown
+    notify-send "Screen recording" "Started"
+fi

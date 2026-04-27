@@ -1,0 +1,812 @@
+#!/usr/bin/env python3
+"""
+unified-clipboard — Single daemon replacing the 6-service clipboard stack.
+
+Architecture: single-threaded async event loop.
+- X11 reads: direct ConvertSelection on the daemon's own connection (no subprocesses → no deadlock).
+- Wayland reads: wl-paste subprocesses (they talk to the compositor, safe).
+- WeChat compatibility: periodic heartbeat grab keeps X11 ownership "alive" for Qt apps.
+- Feedback suppression: timestamp-filtered Wayland cache + timed silence window after writes.
+
+Rollback: systemctl --user disable --now unified-clipboard
+"""
+
+import fcntl
+import hashlib
+import logging
+import os
+import select
+import signal
+import subprocess
+import sys
+import time
+from contextlib import suppress
+from dataclasses import dataclass, field
+
+from Xlib import X, Xatom, display
+from Xlib.ext import xfixes
+from Xlib.protocol.event import SelectionNotify
+
+LOG = logging.getLogger("unified-clipboard")
+
+_MAGIC = {
+    "image/png": b"\x89PNG\r\n\x1a\n",
+    "image/jpeg": b"\xff\xd8",
+    "image/gif": (b"GIF87a", b"GIF89a"),
+    "image/webp": b"RIFF",
+    "image/bmp": b"BM",
+    "image/tiff": (b"II*\x00", b"MM\x00*"),
+}
+
+def _mime_valid(mime, data):
+    if not data:
+        return False
+    magic = _MAGIC.get(mime)
+    if magic is not None:
+        if isinstance(magic[0], int):
+            return data[:len(magic)] == magic
+        return any(data[:len(m)] == m for m in magic)
+    if mime == "text/uri-list":
+        return data.startswith(b"file://") or data.startswith(b"http")
+    if mime == "x-special/gnome-copied-files":
+        return data.startswith(b"copy\n")
+    if mime.startswith("image/"):
+        return False
+    return True
+
+MIME_PRIORITY = [
+    "image/png", "image/jpeg", "image/gif", "image/webp",
+    "image/bmp", "image/tiff",
+    "text/uri-list",
+    "x-special/gnome-copied-files",
+    "text/plain", "text/plain;charset=utf-8", "UTF8_STRING",
+    "STRING", "TEXT",
+    "text/html",
+]
+
+FILE_TARGETS = (
+    "TARGETS", "TIMESTAMP",
+    "text/uri-list", "x-special/gnome-copied-files",
+)
+TEXT_TARGETS = frozenset({
+    "text/plain", "text/plain;charset=utf-8", "STRING",
+    "UTF8_STRING", "TEXT", "text/html",
+})
+
+def _atom_names():
+    names = set(MIME_PRIORITY) | set(FILE_TARGETS) | set(TEXT_TARGETS)
+    names |= {"CLIPBOARD", "PRIMARY"}
+    return names
+
+def content_hash(data_map):
+    h = hashlib.sha256()
+    for k in sorted(data_map):
+        h.update(k.encode())
+        h.update(b"\x00")
+        h.update(data_map[k])
+        h.update(b"\x00")
+    return h.digest()
+
+@dataclass
+class Job:
+    proc: subprocess.Popen
+    buf: bytearray = field(default_factory=bytearray)
+    deadline: float = 0.0
+    tag: str = ""
+
+class ClipDaemon:
+    _SPAWN_TIMEOUT = 2.0
+    _SELECT_TIMEOUT = 0.5
+    _MAX_PROPERTY_BYTES = 4 * 1024 * 1024
+    _WL_SILENCE_AFTER_WRITE = 0.5
+
+    @staticmethod
+    def _x11_error_handler(_dpy, err):
+        if err.error_code != X.BadWindow:
+            LOG.warning("X11 error: %s (opcode=%d, resource=0x%x)",
+                        err, err.major_opcode, err.bad_value)
+        return 0
+
+    # =================================================================
+    # Init
+    # =================================================================
+
+    def __init__(self):
+        self.dpy = display.Display()
+        self.dpy.set_error_handler(self._x11_error_handler)
+        root = self.dpy.screen().root
+
+        self.win = root.create_window(
+            -10, -10, 1, 1, 0, 0, X.InputOnly, X.CopyFromParent,
+            event_mask=X.PropertyChangeMask,
+        )
+        self.read_win = root.create_window(
+            -10, -10, 1, 1, 0, 0, X.InputOutput, X.CopyFromParent,
+        )
+        self._read_prop_clip = self.dpy.intern_atom("UNIFIED_CB_CLIP")
+        self._read_prop_pri = self.dpy.intern_atom("UNIFIED_CB_PRI")
+
+        self.atoms = {}
+        for name in sorted(_atom_names()):
+            self.atoms[name] = self.dpy.intern_atom(name)
+        self.CLIP = self.atoms["CLIPBOARD"]
+        self.PRI = self.atoms["PRIMARY"]
+
+        if not self.dpy.has_extension("XFIXES"):
+            raise RuntimeError("X server lacks XFIXES extension")
+        self.dpy.xfixes_query_version()
+        self.dpy.xfixes_select_selection_input(
+            root, self.PRI,
+            xfixes.XFixesSetSelectionOwnerNotifyMask
+            | xfixes.XFixesSelectionWindowDestroyNotifyMask
+            | xfixes.XFixesSelectionClientCloseNotifyMask,
+        )
+
+        # --- CLIPBOARD state ---
+        self.cache: dict[str, bytes] = {}
+        self.cache_hash = b""
+        self.file_only = False
+        self.timestamp = 0
+
+        # --- Feedback control ---
+        self._wl_silence_until: float = 0.0
+
+        # --- Async jobs ---
+        self._jobs: dict[int, Job] = {}
+
+        # Wayland → X11
+        self._wl_sync_active = False
+        self._wl_sync_dirty = False
+        self._wl_sync_remaining = 0
+        self._wl_sync_cache: dict[str, bytes] = {}
+        self._wl_sync_gen = 0
+
+        # X11 → Wayland
+        self._x11_sync_active = False
+        self._x11_sync_gen = 0
+        self._x11_sync_cache: dict[str, bytes] = {}
+        self._x11_sync_best_mime: str | None = None
+        self._x11_sync_best_data: bytes | None = None
+
+        # Direct X11 read state
+        self._clip_read_state: str | None = None
+        self._clip_read_deadline: float = 0.0
+        self._pri_read_state: str | None = None
+        self._pri_read_deadline: float = 0.0
+
+        # PRIMARY
+        self.pri_last_wayland = b""
+        self.pri_last_x11 = b""
+        self._pri_sync_gen = 0
+        self._pri_pending_utf8: bytes | None = None
+
+        # Wayland watches
+        self.wl_clip_proc = subprocess.Popen(
+            ["wl-paste", "--watch", "sh", "-c",
+             "cat >/dev/null 2>&1; echo C"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        self.wl_pri_proc = subprocess.Popen(
+            ["wl-paste", "--primary", "--watch", "sh", "-c",
+             "cat >/dev/null 2>&1; echo P"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+
+        signal.signal(signal.SIGTERM, self._on_signal)
+        signal.signal(signal.SIGINT, self._on_signal)
+
+    # =================================================================
+    # Lifecycle
+    # =================================================================
+
+    def _on_signal(self, signum, _frame):
+        LOG.info("signal %d, shutting down", signum)
+        self.shutdown()
+        sys.exit(0)
+
+    def shutdown(self):
+        for attr in ("wl_clip_proc", "wl_pri_proc"):
+            p = getattr(self, attr, None)
+            if p and p.poll() is None:
+                with suppress(Exception):
+                    p.terminate()
+        for job in list(self._jobs.values()):
+            with suppress(Exception):
+                job.proc.kill()
+            with suppress(Exception):
+                job.proc.wait()
+
+    # =================================================================
+    # Subprocess management
+    # =================================================================
+
+    def _spawn(self, cmd, input_data=None, tag="", timeout=None):
+        if timeout is None:
+            timeout = self._SPAWN_TIMEOUT
+        try:
+            proc = subprocess.Popen(
+                cmd, stdin=subprocess.PIPE if input_data is not None else None,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            return False
+        if input_data is not None:
+            fd = proc.stdin.fileno()
+            fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+            try:
+                proc.stdin.write(input_data)
+            except (BlockingIOError, BrokenPipeError):
+                pass
+            proc.stdin.close()
+        fd = proc.stdout.fileno()
+        self._jobs[fd] = Job(proc=proc, deadline=time.monotonic() + timeout, tag=tag)
+        return True
+
+    def _kill_job_tag(self, tag_prefix):
+        for fd, job in list(self._jobs.items()):
+            if job.tag.startswith(tag_prefix):
+                with suppress(Exception):
+                    job.proc.kill()
+                with suppress(Exception):
+                    job.proc.wait()
+                self._jobs.pop(fd, None)
+
+    def _check_timeouts(self, now):
+        results = []
+        for fd, job in list(self._jobs.items()):
+            if now > job.deadline:
+                self._jobs.pop(fd, None)
+                with suppress(Exception):
+                    job.proc.kill()
+                with suppress(Exception):
+                    job.proc.wait()
+                results.append((bytes(job.buf), job.tag))
+        return results
+
+    # =================================================================
+    # Wayland → X11 sync
+    # =================================================================
+
+    def _wl_sync_start(self):
+        if self._x11_sync_active:
+            return
+        if self._wl_sync_active:
+            self._wl_sync_dirty = True
+            return
+        self._wl_sync_active = True
+        self._wl_sync_dirty = False
+        self._wl_sync_cache = {}
+        self._wl_sync_gen += 1
+        gen = self._wl_sync_gen
+        if not self._spawn(["wl-paste", "--list-types"], tag=f"wl-sync:{gen}:list"):
+            self._wl_sync_active = False
+
+    def _wl_sync_on_list(self, gen, data):
+        if not self._wl_sync_active or gen != self._wl_sync_gen:
+            return
+        types = set(data.decode().split()) - {"TIMESTAMP"}
+        if not types:
+            self._wl_sync_finish()
+            return
+        self._wl_sync_remaining = len(types)
+        for mime in sorted(types):
+            if not self._spawn(["wl-paste", "-t", mime], tag=f"wl-sync:{gen}:read:{mime}"):
+                self._wl_sync_remaining -= 1
+
+    def _wl_sync_on_read(self, gen, mime, data):
+        if not self._wl_sync_active or gen != self._wl_sync_gen:
+            return
+        if data:
+            self._wl_sync_cache[mime] = data
+        self._wl_sync_remaining -= 1
+        if self._wl_sync_remaining <= 0:
+            self._wl_sync_finish()
+
+    def _wl_sync_finish(self):
+        if not self._wl_sync_active:
+            return
+        self._wl_sync_active = False
+        self._wl_sync_remaining = 0
+        if self._wl_sync_cache:
+            h = content_hash(self._wl_sync_cache)
+            if h != self.cache_hash:
+                self.cache = self._wl_sync_cache
+                self.cache_hash = h
+                has_uri = "text/uri-list" in self.cache
+                has_image = any(k.startswith("image/") for k in self.cache)
+                self.file_only = has_uri and not has_image
+                LOG.info("wl→x11 %d types (%s)%s",
+                         len(self.cache), ",".join(sorted(self.cache)),
+                         " [file_only]" if self.file_only else "")
+        self._grab_clipboard()
+        self._wl_sync_cache = {}
+        if self._wl_sync_dirty:
+            self._wl_sync_start()
+
+    # =================================================================
+    # X11 → Wayland sync (ConvertSelection, no subprocesses)
+    # =================================================================
+
+    def _x11_sync_start(self):
+        self._kill_job_tag("wl-sync:")
+        self._wl_sync_active = False
+        self._wl_sync_dirty = False
+        self._wl_sync_remaining = 0
+        self._wl_sync_cache = {}
+        self._x11_sync_active = True
+        self._x11_sync_cache = {}
+        self._x11_sync_best_mime = None
+        self._x11_sync_best_data = None
+        self._x11_sync_gen += 1
+        self._clip_read_state = "targets"
+        self._clip_read_deadline = time.monotonic() + self._SPAWN_TIMEOUT
+        self.read_win.convert_selection(
+            self.CLIP, self.atoms["TARGETS"],
+            self._read_prop_clip, self.read_win.id, X.CurrentTime,
+        )
+        self.dpy.flush()
+
+    def _x11_sync_on_targets(self):
+        prop = self.read_win.get_property(
+            self._read_prop_clip, Xatom.ATOM, 0, 256, delete=True)
+        available = set(prop.value) if prop else set()
+        if not available:
+            self._x11_sync_finish()
+            return
+        best = None
+        for mime in MIME_PRIORITY:
+            atm = self.atoms.get(mime)
+            if atm is not None and atm in available:
+                best = mime
+                break
+        if best is None:
+            for mime in ("UTF8_STRING", "STRING", "TEXT", "text/plain", "text/plain;charset=utf-8"):
+                atm = self.atoms.get(mime)
+                if atm is not None and atm in available:
+                    best = mime
+                    break
+        if best is None:
+            self._x11_sync_finish()
+            return
+        self._clip_read_state = "data"
+        self._clip_read_deadline = time.monotonic() + self._SPAWN_TIMEOUT
+        self.read_win.convert_selection(
+            self.CLIP, self.atoms[best],
+            self._read_prop_clip, self.read_win.id, X.CurrentTime,
+        )
+        self.dpy.flush()
+
+    def _x11_sync_on_data(self, mime):
+        prop = self.read_win.get_property(
+            self._read_prop_clip, X.AnyPropertyType,
+            0, self._MAX_PROPERTY_BYTES, delete=True)
+        data = prop.value if prop else b""
+        if isinstance(data, list):
+            data = b"".join(data) if data else b""
+        if not data:
+            self._x11_sync_finish()
+            return
+        self._x11_sync_cache[mime] = data
+        self._x11_sync_best_mime = mime
+        self._x11_sync_best_data = data
+        self._x11_sync_finish()
+
+    def _x11_sync_finish(self):
+        self._x11_sync_active = False
+        self._clip_read_state = None
+        if not self._x11_sync_cache:
+            self._grab_clipboard()
+            return
+        best_mime = self._x11_sync_best_mime
+        best_data = self._x11_sync_best_data
+        if best_mime is None:
+            for mime in ("UTF8_STRING", "STRING", "TEXT", "text/plain", "text/plain;charset=utf-8"):
+                if mime in self._x11_sync_cache:
+                    best_mime = mime
+                    best_data = self._x11_sync_cache[mime]
+                    break
+        h = content_hash(self._x11_sync_cache)
+        if h != self.cache_hash and best_mime is not None:
+            self.cache = self._x11_sync_cache
+            self.cache_hash = h
+            has_uri = "text/uri-list" in self.cache
+            has_image = any(k.startswith("image/") for k in self.cache)
+            self.file_only = has_uri and not has_image
+            if self._spawn(["wl-copy", "-t", best_mime], input_data=best_data, tag="x11-sync:wl-copy"):
+                self._wl_silence_until = time.monotonic() + self._WL_SILENCE_AFTER_WRITE
+            LOG.info("x11→wl %s (%d bytes)", best_mime, len(best_data))
+        self._grab_clipboard()
+
+    # =================================================================
+    # X11 ownership
+    # =================================================================
+
+    def _grab_clipboard(self):
+        current = self.dpy.get_selection_owner(self.CLIP)
+        if current == self.win:
+            self.timestamp = int(time.time()) & 0xFFFFFFFF
+            return
+        self.win.set_selection_owner(self.CLIP, X.CurrentTime)
+        self.dpy.flush()
+        if self.dpy.get_selection_owner(self.CLIP) != self.win:
+            LOG.warning("X11 CLIPBOARD grab FAILED")
+        else:
+            self.timestamp = int(time.time()) & 0xFFFFFFFF
+
+    # Event handlers
+    # =================================================================
+
+    def on_wl_clipboard(self):
+        if time.monotonic() < self._wl_silence_until:
+            return
+        self._wl_sync_start()
+
+    def on_x11_clipboard_changed(self):
+        new_owner = self.dpy.get_selection_owner(self.CLIP)
+        if new_owner == self.win:
+            return  # self-grab
+        self._x11_sync_start()
+
+    # =================================================================
+    # PRIMARY sync
+    # =================================================================
+
+    def on_wl_primary(self):
+        self._pri_sync_gen += 1
+        self._spawn(["wl-paste", "--primary", "--no-newline"],
+                    tag=f"pri:wl->x11:{self._pri_sync_gen}:read")
+
+    def on_x11_primary(self):
+        self._pri_sync_gen += 1
+        self._pri_pending_utf8 = None
+        self._pri_read_state = "utf8"
+        self._pri_read_deadline = time.monotonic() + self._SPAWN_TIMEOUT
+        self.read_win.convert_selection(
+            self.PRI, self.atoms["UTF8_STRING"],
+            self._read_prop_pri, self.read_win.id, X.CurrentTime,
+        )
+        self.dpy.flush()
+
+    def _pri_x11_on_utf8(self):
+        prop = self.read_win.get_property(
+            self._read_prop_pri, X.AnyPropertyType,
+            0, self._MAX_PROPERTY_BYTES, delete=True)
+        data = prop.value if prop else b""
+        if isinstance(data, list):
+            data = b"".join(data) if data else b""
+        if data:
+            self._pri_commit_x11(data)
+            return
+        self._pri_read_state = "string"
+        self._pri_read_deadline = time.monotonic() + self._SPAWN_TIMEOUT
+        self.read_win.convert_selection(
+            self.PRI, self.atoms["STRING"],
+            self._read_prop_pri, self.read_win.id, X.CurrentTime,
+        )
+        self.dpy.flush()
+
+    def _pri_x11_on_string(self):
+        prop = self.read_win.get_property(
+            self._read_prop_pri, X.AnyPropertyType,
+            0, self._MAX_PROPERTY_BYTES, delete=True)
+        data = prop.value if prop else b""
+        if isinstance(data, list):
+            data = b"".join(data) if data else b""
+        self._pri_commit_x11(data)
+
+    def _pri_commit_x11(self, data):
+        self._pri_read_state = None
+        if not data or data == self.pri_last_x11:
+            return
+        self.pri_last_wayland = data
+        self.pri_last_x11 = data
+        self._spawn(["wl-copy", "--primary"], input_data=data,
+                    tag=f"pri:x11->wl:{self._pri_sync_gen}:write")
+        LOG.info("x11 primary→wl (%d bytes)", len(data))
+
+    def _pri_wl_to_x11_done(self, gen, data):
+        if gen != self._pri_sync_gen:
+            return
+        if not data or data == self.pri_last_wayland:
+            return
+        self.pri_last_wayland = data
+        self.pri_last_x11 = data
+        self._spawn(["xclip", "-selection", "primary", "-in"],
+                    input_data=data, tag=f"pri:wl->x11:{gen}:write")
+        LOG.info("wl primary→x11 (%d bytes)", len(data))
+
+    # =================================================================
+    # SelectionNotify handler
+    # =================================================================
+
+    def _on_selection_notify(self, ev):
+        if ev.property == X.NONE:
+            self._on_x11_read_refusal(ev)
+            return
+        if ev.property == self._read_prop_clip:
+            st = self._clip_read_state
+            if st == "targets":
+                self._x11_sync_on_targets()
+            elif st == "data":
+                self._x11_sync_on_data(self.dpy.get_atom_name(ev.target))
+        elif ev.property == self._read_prop_pri:
+            st = self._pri_read_state
+            if st == "utf8":
+                self._pri_x11_on_utf8()
+            elif st == "string":
+                self._pri_x11_on_string()
+
+    def _on_x11_read_refusal(self, ev):
+        if ev.selection == self.CLIP:
+            self._clip_read_state = None
+            self._x11_sync_finish()
+        elif ev.selection == self.PRI:
+            if self._pri_read_state == "utf8":
+                self._pri_read_state = "string"
+                self._pri_read_deadline = time.monotonic() + self._SPAWN_TIMEOUT
+                self.read_win.convert_selection(
+                    self.PRI, self.atoms["STRING"],
+                    self._read_prop_pri, self.read_win.id, X.CurrentTime,
+                )
+                self.dpy.flush()
+            else:
+                self._pri_commit_x11(b"")
+
+    def _check_x11_read_timeout(self, now):
+        if self._clip_read_state and now > self._clip_read_deadline:
+            self._clip_read_state = None
+            self._x11_sync_finish()
+        if self._pri_read_state and now > self._pri_read_deadline:
+            self._pri_read_state = None
+            self._pri_commit_x11(b"")
+
+    # =================================================================
+    # X11 SelectionRequest handler
+    # =================================================================
+
+    def _serve(self, ev):
+        target_name = self.dpy.get_atom_name(ev.target)
+        req_prop = ev.property if ev.property != X.NONE else ev.target
+        granted = False
+        if ev.selection == self.CLIP:
+            granted = self._serve_clipboard(ev, ev.target, target_name, req_prop)
+        elif ev.selection == self.PRI:
+            if ev.target in (self.atoms["TARGETS"],):
+                atoms = [self.atoms["TIMESTAMP"], self.atoms["UTF8_STRING"]]
+                ev.requestor.change_property(req_prop, Xatom.ATOM, 32, atoms)
+                granted = True
+            elif ev.target == self.atoms["TIMESTAMP"]:
+                ev.requestor.change_property(req_prop, Xatom.INTEGER, 32, [self.timestamp])
+                granted = True
+            else:
+                for t in (self.atoms[n] for n in ("UTF8_STRING", "STRING", "TEXT", "text/plain")):
+                    if ev.target == t:
+                        ev.requestor.change_property(req_prop, t, 8, self.pri_last_x11)
+                        granted = True
+                        break
+        ev.requestor.send_event(SelectionNotify(
+            time=ev.time, requestor=ev.requestor, selection=ev.selection,
+            target=ev.target, property=req_prop if granted else X.NONE,
+        ))
+        self.dpy.flush()
+
+    def _serve_clipboard(self, ev, target, target_name, req_prop):
+        if target == self.atoms["TARGETS"]:
+            if self.file_only:
+                serve = [self.atoms[n] for n in FILE_TARGETS if n in self.atoms]
+            else:
+                serve = [self.atoms[n] for n in sorted(self.cache) if n in self.atoms]
+            if self.atoms["TIMESTAMP"] not in serve:
+                serve.append(self.atoms["TIMESTAMP"])
+            ev.requestor.change_property(req_prop, Xatom.ATOM, 32, serve)
+            return True
+        if target == self.atoms["TIMESTAMP"]:
+            ev.requestor.change_property(req_prop, Xatom.INTEGER, 32, [self.timestamp])
+            return True
+        if self.file_only and target_name in TEXT_TARGETS:
+            return False
+        if target_name == "x-special/gnome-copied-files" and self.file_only:
+            uri = self.cache.get("text/uri-list", b"")
+            ev.requestor.change_property(req_prop, target, 8, b"copy\n" + uri)
+            return True
+        if target_name in self.cache:
+            ev.requestor.change_property(req_prop, target, 8, self.cache[target_name])
+            return True
+        if target_name in ("STRING", "TEXT", "UTF8_STRING", "text/plain;charset=utf-8"):
+            for fb in ("UTF8_STRING", "text/plain;charset=utf-8", "text/plain", "STRING", "TEXT"):
+                if fb in self.cache and fb != target_name:
+                    ev.requestor.change_property(req_prop, target, 8, self.cache[fb])
+                    return True
+        return False
+
+    # =================================================================
+    # X11 event dispatch
+    # =================================================================
+
+    def _handle(self, ev):
+        if ev.type == X.SelectionRequest:
+            self._serve(ev)
+        elif ev.type == X.SelectionClear:
+            self.on_x11_clipboard_changed()
+        elif ev.type == X.SelectionNotify:
+            self._on_selection_notify(ev)
+        else:
+            sel = getattr(ev, "selection", None)
+            if sel == self.PRI:
+                self.on_x11_primary()
+
+    # =================================================================
+    # Startup snapshot
+    # =================================================================
+
+    def _snapshot_clipboard(self):
+        try:
+            r = subprocess.run(["wl-paste", "--list-types"], capture_output=True, text=True, timeout=2)
+            if r.returncode == 0:
+                types = set(r.stdout.split()) - {"TIMESTAMP"}
+                for mime in sorted(types):
+                    try:
+                        r2 = subprocess.run(["wl-paste", "-t", mime], capture_output=True, timeout=2)
+                        if r2.returncode == 0 and r2.stdout:
+                            self.cache[mime] = r2.stdout
+                    except Exception:
+                        pass
+                self.cache_hash = content_hash(self.cache)
+                has_uri = "text/uri-list" in self.cache
+                has_image = any(k.startswith("image/") for k in self.cache)
+                self.file_only = has_uri and not has_image
+        except Exception:
+            pass
+
+    @staticmethod
+    def _snapshot_primary_wl():
+        try:
+            r = subprocess.run(["wl-paste", "--primary", "--no-newline"], capture_output=True, timeout=2)
+            return r.stdout if r.returncode == 0 else b""
+        except Exception:
+            return b""
+
+    @staticmethod
+    def _snapshot_primary_x11():
+        try:
+            r = subprocess.run(["xclip", "-o", "-selection", "primary", "-t", "UTF8_STRING"], capture_output=True, timeout=2)
+            if r.returncode == 0 and r.stdout:
+                return r.stdout
+            r = subprocess.run(["xclip", "-o", "-selection", "primary", "-t", "STRING"], capture_output=True, timeout=2)
+            return r.stdout if r.returncode == 0 else b""
+        except Exception:
+            return b""
+
+    # =================================================================
+    # Event loop
+    # =================================================================
+
+    def run(self):
+        self._snapshot_clipboard()
+        self._grab_clipboard()
+        self.pri_last_wayland = self._snapshot_primary_wl()
+        self.pri_last_x11 = self._snapshot_primary_x11()
+        LOG.info("ready (clip %d types, pri wl=%d x11=%d bytes)%s",
+                 len(self.cache), len(self.pri_last_wayland), len(self.pri_last_x11),
+                 " [file_only]" if self.file_only else "")
+
+        xfd = self.dpy.fileno()
+        clip_fd = self.wl_clip_proc.stdout.fileno()
+        pri_fd = self.wl_pri_proc.stdout.fileno()
+
+        while True:
+            fds = [xfd, clip_fd, pri_fd] + list(self._jobs)
+            try:
+                r, _, _ = select.select(fds, [], [], self._SELECT_TIMEOUT)
+            except InterruptedError:
+                continue
+
+            now = time.monotonic()
+
+            # --- Subprocess I/O ---
+            completed: list[tuple[bytes, str]] = []
+            for fd in r:
+                if fd in self._jobs:
+                    job = self._jobs[fd]
+                    try:
+                        chunk = os.read(fd, 65536)
+                    except OSError:
+                        chunk = b""
+                    if chunk:
+                        job.buf.extend(chunk)
+                    else:
+                        self._jobs.pop(fd, None)
+                        job.proc.wait()
+                        completed.append((bytes(job.buf), job.tag))
+
+            # --- Wayland watch fds ---
+            if clip_fd in r:
+                if not self.wl_clip_proc.stdout.readline():
+                    LOG.error("wl-paste --watch died, exiting for restart")
+                    return 1
+                self.on_wl_clipboard()
+            if pri_fd in r:
+                if not self.wl_pri_proc.stdout.readline():
+                    LOG.error("wl-paste --primary --watch died, exiting for restart")
+                    return 1
+                self.on_wl_primary()
+
+            # --- X11 events ---
+            if xfd in r:
+                self.dpy.flush()
+                while self.dpy.pending_events():
+                    self._handle(self.dpy.next_event())
+
+
+            # --- Keepalive self-read (WeChat compatibility) ---
+
+            # --- X11 read timeouts ---
+            self._check_x11_read_timeout(now)
+
+            # --- Dispatch subprocess completions ---
+            for data, tag in completed:
+                self._dispatch_job_result(data, tag)
+            for data, tag in self._check_timeouts(now):
+                self._dispatch_job_result(data, tag)
+
+    # =================================================================
+    # Subprocess result dispatch
+    # =================================================================
+
+    def _dispatch_job_result(self, data, tag):
+        if tag.startswith("wl-sync:"):
+            parts = tag.split(":", 3)
+            if len(parts) < 3:
+                return
+            gen = int(parts[1])
+            phase = parts[2]
+            if phase == "list":
+                self._wl_sync_on_list(gen, data)
+            elif phase == "read" and len(parts) == 4:
+                self._wl_sync_on_read(gen, parts[3], data)
+        elif tag.startswith("x11-sync:") and tag == "x11-sync:wl-copy":
+            pass  # wl-copy completion, no action needed
+        elif tag.startswith("pri:wl->x11:"):
+            parts = tag.split(":")
+            if len(parts) >= 4 and parts[3] == "read":
+                self._pri_wl_to_x11_done(int(parts[2]), data)
+        elif tag.startswith("pri:x11->wl:"):
+            pass  # wl-copy --primary completion, no action needed
+
+
+def main():
+    logging.basicConfig(
+        level=os.environ.get("UNIFIED_CLIPBOARD_LOG", "INFO"),
+        format="%(levelname)s %(message)s",
+        stream=sys.stderr,
+    )
+    stop = {"flag": False}
+    def _early_term(*_):
+        stop["flag"] = True
+    signal.signal(signal.SIGTERM, _early_term)
+    signal.signal(signal.SIGINT, _early_term)
+
+    daemon = None
+    first_fail = True
+    while daemon is None:
+        if stop["flag"]:
+            sys.exit(0)
+        try:
+            daemon = ClipDaemon()
+        except Exception as e:
+            if first_fail:
+                LOG.info("display not ready (%s), retrying every 5s", e)
+                first_fail = False
+            else:
+                LOG.debug("display still not ready: %s", e)
+            time.sleep(5)
+    rc = 0
+    try:
+        rc = daemon.run() or 0
+    finally:
+        daemon.shutdown()
+    sys.exit(rc)
+
+if __name__ == "__main__":
+    main()
