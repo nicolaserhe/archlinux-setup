@@ -28,12 +28,11 @@ EOF
 success "Written: ~/.config/environment.d/fcitx.conf"
 
 # -- 皮肤与 UI ----------------------------------------------------------------
-header "ClassicUI config"
-mkdir -p "$HOME/.config/fcitx5/conf"
 cat >"$HOME/.config/fcitx5/conf/classicui.conf" <<'EOF'
 PerScreenDPI=False
 Font="Noto Sans Mono 13"
 Theme=adwaita-dark
+Vertical Candidate List=True
 EOF
 success "Written: ~/.config/fcitx5/conf/classicui.conf"
 

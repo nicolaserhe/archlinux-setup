@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
 # lib/common.sh -- 包安装 / 通用工具函数
-#
-# 规则：只能 source，不能直接执行。
-#       需要先 source lib/utils.sh。
 # =============================================================================
 
 [[ -n "${_COMMON_LOADED:-}" ]] && return 0
@@ -73,8 +70,6 @@ flatpak_install() {
 
 # -- systemd 服务 -------------------------------------------------------------
 
-# enable_system_service <service>
-#   幂等地 enable 一个 system 级 unit（需要 sudo / root）。
 enable_system_service() {
     local svc="$1"
     if systemctl is-enabled "$svc" &>/dev/null; then
@@ -86,10 +81,10 @@ enable_system_service() {
     fi
 }
 
-# enable_user_service <service>
-#   幂等地 enable 一个 user 级 unit（不需要 root）。
 enable_user_service() {
     local svc="$1"
+    # 补全 XDG_RUNTIME_DIR，保证新用户 / runuser 场景下 systemctl --user 可用
+    ensure_xdg_runtime_dir
     if systemctl --user is-enabled "$svc" &>/dev/null; then
         warn "$svc already enabled, skipping"
     else
@@ -99,10 +94,41 @@ enable_user_service() {
     fi
 }
 
-# switch_display_manager <service>
-#   切换 display manager：移除旧的 display-manager.service 软链接后 enable 新服务。
-#   systemd 约定多个 DM 竞争同一个 display-manager.service 别名，
-#   直接 enable 时若旧链接已存在会报错，需先清除。
+# add_user_service_wants <unit> <wanted-by-unit>
+# 通过直接创建 .wants/ 软链接，将 <unit> 挂到 <wanted-by-unit> 下。
+# 不依赖 D-Bus / 活跃的用户会话，在 runuser 安装场景中始终可用。
+# 软链接的目标按优先级搜索：用户配置目录 > 包安装目录。
+add_user_service_wants() {
+    local unit="$1" wanted_by="$2"
+    local wants_dir="$HOME/.config/systemd/user/${wanted_by}.wants"
+    local unit_path=""
+
+    # 按优先级搜索 unit 文件
+    local search_dirs=(
+        "$HOME/.config/systemd/user"
+        "$HOME/.local/share/systemd/user"
+        /etc/systemd/user
+        /usr/lib/systemd/user
+        /usr/local/lib/systemd/user
+    )
+    for dir in "${search_dirs[@]}"; do
+        if [[ -f "$dir/$unit" ]]; then
+            unit_path="$dir/$unit"
+            break
+        fi
+    done
+
+    if [[ -z "$unit_path" ]]; then
+        warn "Unit file not found: $unit (searched ${search_dirs[*]})"
+        warn "  $unit will NOT be linked to ${wanted_by}.wants/ -- enable manually after first login"
+        return 0
+    fi
+
+    mkdir -p "$wants_dir"
+    ln -sf "$unit_path" "$wants_dir/$unit"
+    success "Linked $unit -> ${wanted_by}.wants/"
+}
+
 switch_display_manager() {
     local svc="$1"
     sudo rm -f /etc/systemd/system/display-manager.service
@@ -113,8 +139,6 @@ switch_display_manager() {
 
 command_exists() { command -v "$1" &>/dev/null; }
 
-# git_clone <dest> <url> [额外 git 参数...]
-#   --depth=1 克隆，失败最多重试 3 次。
 git_clone() {
     local dest="$1" url="$2"
     shift 2
@@ -136,8 +160,6 @@ git_clone() {
     success "Cloned: $dest"
 }
 
-# copy_config <src> <dest>
-#   自动创建父目录。
 copy_config() {
     local src="$1" dest="$2"
     mkdir -p "$(dirname "$dest")"

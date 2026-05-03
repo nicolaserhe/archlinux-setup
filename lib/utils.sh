@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
 # lib/utils.sh -- 颜色、日志、步骤追踪
-#
-# 规则：本文件只能被 source，不能直接执行。
-#       不设顶层 set -e / set -u，避免污染调用方 shell。
 # =============================================================================
 
 [[ -n "${_UTILS_LOADED:-}" ]] && return 0
@@ -28,16 +25,38 @@ die() {
     exit 1
 }
 
-# -- 步骤追踪 -----------------------------------------------------------------
-# 每个编排脚本（install.sh / user-phase.sh）在自己的 shell 中独立维护列表。
-# 子模块脚本只需 exit 0 / 非零，无需关心追踪逻辑。
+# -- XDG 运行时目录 -----------------------------------------------------------
+# runuser / su 不建立完整 systemd 用户会话，新用户首次运行时
+# XDG_RUNTIME_DIR 和 DBUS_SESSION_BUS_ADDRESS 均未定义，
+# 导致所有 systemctl --user 调用失败。
+# 调用此函数可在无真实会话的环境中补全这两个变量。
+# 对已登录用户无副作用（变量已存在且目录存在时直接返回）。
+ensure_xdg_runtime_dir() {
+    local uid runtime_dir
+    uid="$(id -u)"
+    runtime_dir="/run/user/$uid"
 
+    # 已正确设置则直接返回
+    if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "${XDG_RUNTIME_DIR}" ]]; then
+        return 0
+    fi
+
+    export XDG_RUNTIME_DIR="$runtime_dir"
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime_dir}/bus"
+
+    if [[ -d "$runtime_dir" ]]; then
+        success "XDG_RUNTIME_DIR: $runtime_dir"
+    else
+        # 目录不存在时仍导出变量，systemctl --user 会给出明确错误而非神秘崩溃；
+        # install.sh 中的 linger 步骤会让 systemd-logind 创建该目录。
+        warn "XDG_RUNTIME_DIR $runtime_dir 不存在，用户服务可能需要首次登录后手动重新启用"
+    fi
+}
+
+# -- 步骤追踪 -----------------------------------------------------------------
 _STEPS_PASS=()
 _STEPS_FAIL=()
 
-# run_step <label> <cmd> [args...]
-#   运行命令，捕获退出码，记录 PASS / FAIL。
-#   调用方 shell 本身不受子命令 set -e 影响。
 run_step() {
     local label="$1"
     shift
@@ -59,8 +78,12 @@ print_summary() {
     echo -e "\n${BOLD}========================================${RESET}" >&2
     echo -e "${BOLD}  Summary${RESET}" >&2
     echo -e "${BOLD}========================================${RESET}" >&2
-    for s in "${_STEPS_PASS[@]:+"${_STEPS_PASS[@]}"}"; do echo -e "  ${GREEN}[PASS]${RESET}  $s" >&2; done
-    for s in "${_STEPS_FAIL[@]:+"${_STEPS_FAIL[@]}"}"; do echo -e "  ${RED}[FAIL]${RESET}  $s" >&2; done
+    for s in "${_STEPS_PASS[@]:+"${_STEPS_PASS[@]}"}"; do
+        echo -e "  ${GREEN}[PASS]${RESET}  $s" >&2
+    done
+    for s in "${_STEPS_FAIL[@]:+"${_STEPS_FAIL[@]}"}"; do
+        echo -e "  ${RED}[FAIL]${RESET}  $s" >&2
+    done
     echo -e "${BOLD}========================================${RESET}" >&2
     if [[ $nf -eq 0 ]]; then
         echo -e "  ${GREEN}${BOLD}All $np steps completed successfully.${RESET}" >&2

@@ -25,7 +25,6 @@ Server = https://repo.huaweicloud.com/archlinuxcn/$arch
 EOF
     fi
 
-    # 无论配置是否已存在，数据库文件可能从未下载，总是检查并同步
     local db_file="/var/lib/pacman/sync/archlinuxcn.db"
     if [[ ! -f "$db_file" ]]; then
         info "archlinuxcn database missing, syncing..."
@@ -42,11 +41,6 @@ _setup_archlinuxcn
 
 # -- Base ---------------------------------------------------------------------
 header "Base dependencies"
-# curl:       脚本内用于验证代理连通性
-# less:       分页阅读器
-# base-devel: AUR 构建必须（gcc / make / pkg-config 等）
-# git:        克隆插件 / AUR 源码
-# python:     proxy.sh 中用 python3 修补 mihomo 配置（显式声明，不靠隐式依赖）
 pacman_install \
     curl \
     less \
@@ -56,7 +50,6 @@ pacman_install \
 
 # -- Editor -------------------------------------------------------------------
 header "Editor"
-# neovim: 主编辑器（.zshrc 中 EDITOR=nvim，alacritty / shell 均依赖）
 pacman_install \
     neovim
 
@@ -67,16 +60,6 @@ pacman_install \
 
 # -- CLI tools ----------------------------------------------------------------
 header "CLI tools"
-# lsd:       替代 ls
-# starship:  跨 shell 提示符
-# duf:       替代 df
-# fd:        替代 find
-# zoxide:    智能 cd
-# fzf:       模糊搜索
-# ripgrep:   替代 grep
-# bat:       替代 cat，语法高亮
-# tldr:      简化版 man
-# fastfetch: 系统信息展示
 pacman_install \
     lsd \
     starship \
@@ -95,34 +78,37 @@ header "Desktop / Wayland"
 # xwayland-satellite:      让 X11 应用在 niri 下独立运行，无需内置 XWayland
 # xorg-xwayland:           XWayland 服务端，xwayland-satellite 的运行时依赖（显式声明）
 # xdg-desktop-portal:      portal 框架基础包
-# xdg-desktop-portal-gtk:  文件选择器 / 通知等门户；
-#                          不安装 xdg-desktop-portal-gnome，避免拉入 gnome-shell
+# xdg-desktop-portal-gnome: 文件选择器 / 截图 / 屏幕共享等门户（DMS 推荐）
+# xdg-desktop-portal-gtk:  GTK 应用后备门户
 # gnome-keyring:           密钥环（SSH / GPG / 浏览器密码）
 # greetd:                  轻量登录管理器，替代 gdm，不依赖 GNOME 组件
-# fuzzel:                  Wayland 原生应用启动器
 # alacritty:               GPU 加速终端
-# libnotify:               notify-send，发送桌面通知
-# mako:                    Wayland 通知守护进程
-# grim:                    Wayland 截图工具
+# libnotify:               notify-send，发送桌面通知（DMS 提供通知守护，mako 不再需要）
+# grim:                    Wayland 截图工具（DMS 截图集成的后端）
 # slurp:                   鼠标框选屏幕区域，配合 grim 使用
 # wl-clipboard:            Wayland 剪贴板命令行工具
 # cliphist:                剪贴板历史管理
+# cava:                    DMS 音频可视化 widget 依赖
+# qt6-multimedia-ffmpeg:   DMS 媒体播放支持
+# accountsservice:         持久化用户头像 / 配置（DMS 推荐）
 pacman_install \
     niri \
     xwayland-satellite \
     xorg-xwayland \
     xdg-desktop-portal \
+    xdg-desktop-portal-gnome \
     xdg-desktop-portal-gtk \
     gnome-keyring \
     greetd \
-    fuzzel \
     alacritty \
     libnotify \
-    mako \
     grim \
     slurp \
     wl-clipboard \
-    cliphist
+    cliphist \
+    cava \
+    qt6-multimedia-ffmpeg \
+    accountsservice
 
 # -- Bluetooth ----------------------------------------------------------------
 header "Bluetooth"
@@ -133,7 +119,6 @@ pacman_install \
 
 # -- Audio --------------------------------------------------------------------
 header "Audio"
-# pipewire / pipewire-pulse / wireplumber: 现代音频栈，替代 PulseAudio
 pacman_install \
     pipewire \
     pipewire-pulse \
@@ -148,8 +133,6 @@ pacman_install \
 
 # -- Fonts --------------------------------------------------------------------
 header "Fonts"
-# noto-fonts-cjk: 中日韩字体，防止方块乱码
-# （Maple Mono NL NF CN 在 aur.sh 中安装）
 pacman_install \
     noto-fonts-cjk
 
@@ -165,18 +148,18 @@ pacman_install \
 
 # -- Apps ---------------------------------------------------------------------
 header "Apps"
-# flclash:           Clash Meta 图形客户端
-# localsend:         局域网文件互传
-# ffmpegthumbnailer: 视频缩略图
-# gvfs-smb:          挂载 Windows 共享目录
-# file-roller:       归档管理器
-# flatpak:           沙盒应用运行时
+# power-profiles-daemon: 电源性能模式管理（DMS 警告消除）
+# cups-pk-helper:        打印机 polkit helper（DMS 警告消除）
+# kimageformats:         额外图片格式支持 AVIF/HEIF 等（DMS 警告消除）
 pacman_install \
     flclash \
     localsend \
     ffmpegthumbnailer \
     gvfs-smb \
     file-roller \
-    flatpak
+    flatpak \
+    power-profiles-daemon \
+    cups-pk-helper \
+    kimageformats
 
 success "pacman packages done"

@@ -1,5 +1,0 @@
-general.import = ["dracula.toml"]
-
-[font]
-normal = { family = "Maple Mono NL NF CN" }
-size = 15

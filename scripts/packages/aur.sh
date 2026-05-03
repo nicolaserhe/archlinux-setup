@@ -22,16 +22,19 @@ header "yay"
 command_exists yay && warn "yay already installed, skipping" || _install_yay
 
 header "AUR packages"
+# dms-shell-niri:          DankMaterialShell，niri 优化版本，替代 mako/fuzzel/polkit
+# matugen:                 DMS 壁纸动态取色主题引擎
+# kanata:                  键盘重映射守护进程
+# maple-mono-nf-cn:        提供 "Maple Mono NL NF CN" 字族，alacritty.toml 中使用
 aur_install \
     greetd-tuigreet \
-    xfce-polkit \
     kanata \
     google-chrome \
     wechat-appimage \
     linuxqq-appimage \
     fcitx5-skin-adwaita-dark \
-    maple-mono-nf-cn
-
-# maple-mono-nf-cn 提供 "Maple Mono NL NF CN" 字族，alacritty.toml 中使用
+    maple-mono-nf-cn \
+    dms-shell-niri \
+    matugen
 
 success "AUR packages done"
