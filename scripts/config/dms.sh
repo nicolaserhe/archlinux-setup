@@ -38,55 +38,8 @@ unset _kdl
 # =============================================================================
 header "DMS setup"
 if command_exists dms; then
-    if expect <<'EOF'
-spawn dms setup
-
-# 内嵌默认应答；新选项可在此追加
-array set choices [list \
-    privilege "sudo" \
-    compositor "Niri" \
-    terminal "Alacritty" \
-    systemd "Yes" \
-    deploy "y" \
-]
-
-# 在 expect 缓冲区中按选项名匹配编号；
-# Tcl 中花括号会阻止变量替换，必须用双引号 + 反斜杠转义来构造正则
-proc select_by_name {name} {
-    set buffer $expect_out(buffer)
-    set re "(\[0-9\]+)\\)\\s*$name"
-    if {[regexp -nocase $re $buffer -> choice]} {
-        return $choice
-    }
-    return ""
-}
-
-while {1} {
-    expect {
-        eof { break }
-        -re {Choose one.*\[.*\]} {
-            set choice [select_by_name $choices(privilege)]
-            if {$choice ne ""} { send "$choice\r" }
-        }
-        -re {Select compositor:} {
-            set choice [select_by_name $choices(compositor)]
-            if {$choice ne ""} { send "$choice\r" }
-        }
-        -re {Select terminal:} {
-            set choice [select_by_name $choices(terminal)]
-            if {$choice ne ""} { send "$choice\r" }
-        }
-        -re {Use systemd.*} {
-            set choice [select_by_name $choices(systemd)]
-            if {$choice ne ""} { send "$choice\r" }
-        }
-        -re {Proceed with deployment\?.*} {
-            send "$choices(deploy)\r"
-        }
-    }
-}
-EOF
-    then
+    # 交互逻辑提取到独立 .exp 文件，让 Tcl/expect 享有 lint 与高亮
+    if expect "$REPO_DIR/scripts/config/helpers/dms-setup.exp"; then
         success "dms setup completed"
     else
         warn "dms setup returned non-zero -- please verify manually after first login"

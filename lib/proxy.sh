@@ -26,6 +26,9 @@ MIHOMO_LOG_FILE="/tmp/mihomo-bootstrap.log"
 _MIHOMO_CFG_DIR="$HOME/.config/mihomo"
 _PROXY_PORT=7890
 
+# 本文件所在目录，用于定位同级 helpers/；BASH_SOURCE 在 source 时同样有效
+_PROXY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # -- 私有：定位订阅产物中的 YAML 配置 -----------------------------------------
 _proxy_locate_config() {
     local repo_dir="$1"
@@ -65,20 +68,9 @@ _proxy_install_config() {
         warn "geoip.metadb not found alongside config -- mihomo will download if needed"
     fi
 
-    # 通过 python 修改 yaml，避免引入额外 yaml 解析依赖；端口从 shell 注入
-    python3 - "$_MIHOMO_CFG_DIR/config.yaml" "$_PROXY_PORT" <<'PYEOF'
-import sys, re
-path, port = sys.argv[1], sys.argv[2]
-with open(path, encoding="utf-8") as f:
-    text = f.read()
-if not re.search(r'^mixed-port\s*:', text, re.M):
-    text = f"mixed-port: {port}\n" + text
-text = re.sub(r'^tun\s*:.*?(?=^\S|\Z)', '', text, flags=re.M | re.S)
-text = re.sub(r'^(redir-port|tproxy-port)\s*:.*',
-              r'# \g<0>  # disabled: requires root', text, flags=re.M)
-with open(path, 'w', encoding="utf-8") as f:
-    f.write(text)
-PYEOF
+    # 提取到独立 .py 让 lint / 编辑器能正常工作；逻辑见 helpers/patch-mihomo-config.py
+    python3 "$_PROXY_LIB_DIR/helpers/patch-mihomo-config.py" \
+        "$_MIHOMO_CFG_DIR/config.yaml" "$_PROXY_PORT"
     success "Config deployed (mixed-port: $_PROXY_PORT, tun disabled)"
 }
 
