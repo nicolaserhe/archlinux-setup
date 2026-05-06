@@ -2,11 +2,10 @@
 # =============================================================================
 # lib/svc.sh -- systemd 服务管理助手
 #
-# 注意：enable_system_service / switch_display_manager 需要 root 权限；
-#       在普通用户脚本中通过 sudo 调用，在 root 脚本中直接执行。
-#       这里统一使用 sudo，在 root 环境下 sudo 是无操作的（PAM 透传）。
+# 系统级操作统一通过 sudo 调用：root 环境下 sudo 是 PAM 透传，普通用户脚本
+# 中通过临时 NOPASSWD 规则免交互。
 #
-# 依赖：lib/utils.sh（ensure_xdg_runtime_dir）
+# 依赖：lib/utils.sh
 # =============================================================================
 
 [[ -n "${_SVC_LOADED:-}" ]] && return 0
@@ -17,34 +16,34 @@ _SVC_LOADED=1
     return 1
 }
 
-# enable_system_service <unit> -- 启用系统级服务（需要 root / sudo）
+# -- 系统服务 -----------------------------------------------------------------
 enable_system_service() {
     local svc="$1"
     if systemctl is-enabled "$svc" &>/dev/null; then
         warn "$svc already enabled, skipping"
+    elif sudo systemctl enable "$svc"; then
+        success "$svc enabled"
     else
-        sudo systemctl enable "$svc" \
-            && success "$svc enabled" \
-            || warn "$svc could not be enabled"
+        warn "$svc could not be enabled"
     fi
 }
 
-# enable_user_service <unit> -- 启用用户级服务
+# -- 用户服务 -----------------------------------------------------------------
 enable_user_service() {
     local svc="$1"
     ensure_xdg_runtime_dir
     if systemctl --user is-enabled "$svc" &>/dev/null; then
         warn "$svc already enabled, skipping"
+    elif systemctl --user enable "$svc" 2>/dev/null; then
+        success "$svc enabled"
     else
-        systemctl --user enable "$svc" 2>/dev/null \
-            && success "$svc enabled" \
-            || warn "$svc could not be enabled (no systemd user session?)"
+        warn "$svc could not be enabled (no systemd user session?)"
     fi
 }
 
-# add_user_service_wants <unit> <wanted-by-unit>
-# 直接创建 .wants/ 软链接，不依赖活跃的 D-Bus 会话。
-# 按优先级搜索 unit 文件：用户配置目录 > 包安装目录。
+# -- 直接创建 .wants/ 软链接 --------------------------------------------------
+# 适用于 .path / 刚写入但尚未 daemon-reload 的 unit：
+# 此时 systemctl --user enable 可能因找不到 unit 文件而失败，软链接更可靠。
 add_user_service_wants() {
     local unit="$1" wanted_by="$2"
     local wants_dir="$HOME/.config/systemd/user/${wanted_by}.wants"
@@ -65,8 +64,7 @@ add_user_service_wants() {
     done
 
     if [[ -z "$unit_path" ]]; then
-        warn "Unit file not found: $unit"
-        warn "  $unit will NOT be linked to ${wanted_by}.wants/ -- enable manually after first login"
+        warn "Unit file not found: $unit -- enable manually after first login"
         return 0
     fi
 
@@ -75,7 +73,7 @@ add_user_service_wants() {
     success "Linked $unit -> ${wanted_by}.wants/"
 }
 
-# switch_display_manager <unit> -- 切换显示管理器
+# -- 切换显示管理器 -----------------------------------------------------------
 switch_display_manager() {
     local svc="$1"
     sudo rm -f /etc/systemd/system/display-manager.service

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# lib/utils.sh -- 颜色、日志、XDG 运行时目录、步骤追踪
+# lib/utils.sh -- 颜色、日志、命令检测、重试、XDG 运行时目录、步骤追踪
 # =============================================================================
 
 [[ -n "${_UTILS_LOADED:-}" ]] && return 0
@@ -14,7 +14,8 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-# -- 日志（全部写到 stderr，不干扰 stdout 捕获）-------------------------------
+# -- 日志 ---------------------------------------------------------------------
+# 全部写到 stderr，保持 stdout 干净，便于通过 $() 捕获脚本输出
 info()    { echo -e "${BLUE}[INFO]${RESET}  $*" >&2; }
 success() { echo -e "${GREEN}[OK]${RESET}    $*" >&2; }
 warn()    { echo -e "${YELLOW}[SKIP]${RESET}  $*" >&2; }
@@ -22,10 +23,27 @@ error()   { echo -e "${RED}[ERR]${RESET}   $*" >&2; }
 header()  { echo -e "\n${BOLD}==> $*${RESET}" >&2; }
 die()     { error "$*"; exit 1; }
 
+# -- 命令检测 -----------------------------------------------------------------
+command_exists() { command -v "$1" &>/dev/null; }
+
+# -- 重试 ---------------------------------------------------------------------
+# retry <count> <delay_seconds> <cmd...>
+retry() {
+    local count=$1 delay=$2 attempt
+    shift 2
+    for (( attempt = 1; attempt <= count; attempt++ )); do
+        "$@" && return 0
+        if (( attempt < count )); then
+            warn "Attempt $attempt/$count failed, retrying in ${delay}s..."
+            sleep "$delay"
+        fi
+    done
+    return 1
+}
+
 # -- XDG 运行时目录 -----------------------------------------------------------
-# runuser / su 不建立完整 systemd 用户会话，新用户首次运行时
-# XDG_RUNTIME_DIR 和 DBUS_SESSION_BUS_ADDRESS 均未定义，
-# 导致所有 systemctl --user 调用失败。
+# runuser / su 不会建立完整的 systemd 用户会话；XDG_RUNTIME_DIR 与
+# DBUS_SESSION_BUS_ADDRESS 缺失时所有 systemctl --user 调用都会失败。
 ensure_xdg_runtime_dir() {
     local uid runtime_dir
     uid="$(id -u)"
@@ -41,7 +59,7 @@ ensure_xdg_runtime_dir() {
     if [[ -d "$runtime_dir" ]]; then
         success "XDG_RUNTIME_DIR: $runtime_dir"
     else
-        warn "XDG_RUNTIME_DIR $runtime_dir 不存在，用户服务可能需要首次登录后手动重新启用"
+        warn "XDG_RUNTIME_DIR $runtime_dir missing -- user services may need re-enabling at first login"
     fi
 }
 
@@ -66,15 +84,13 @@ run_step() {
 }
 
 print_summary() {
-    local s np nf
-    np=${#_STEPS_PASS[@]}
-    nf=${#_STEPS_FAIL[@]}
+    local s np=${#_STEPS_PASS[@]} nf=${#_STEPS_FAIL[@]}
 
     echo -e "\n${BOLD}========================================${RESET}" >&2
     echo -e "${BOLD}  Summary${RESET}" >&2
     echo -e "${BOLD}========================================${RESET}" >&2
 
-    # 用 (( np > 0 )) 守卫，兼容 bash 4.3 及以下 set -u 环境
+    # (( var > 0 )) 守卫，兼容老版本 bash 在 set -u 下展开空数组报错
     if (( np > 0 )); then
         for s in "${_STEPS_PASS[@]}"; do
             echo -e "  ${GREEN}[PASS]${RESET}  $s" >&2

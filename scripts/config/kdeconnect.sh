@@ -2,16 +2,13 @@
 # =============================================================================
 # scripts/config/kdeconnect.sh -- KDE Connect / Valent + DankKDEConnect 插件
 #
-# DMS 1.4 新增了 Phone Connect 功能（DankKDEConnect 官方插件）：
-#   - 在 DankBar 显示手机电量
+# DMS 1.4 的 Phone Connect 通过 DankKDEConnect 官方插件 + Valent 后端实现：
+#   - DankBar 显示手机电量
 #   - 接收手机通知、传输文件、同步剪贴板
-#   - 使用 Valent（GNOME 系 KDE Connect 实现）作为后端，无 Plasma 依赖
 #
-# BUG FIX（上一版本）：
-#   kdeconnect.sh 在 niri config.kdl 里追加了单独的 environment {} 块，
-#   但 dms.sh 已经追加了一个，niri 不允许重复，导致 config parse 失败。
-#   修复：SSH_AUTH_SOCK 写入 environment.d（项目已有机制），
-#         niri config 只追加 spawn-at-startup，不再新增 environment 块。
+# SSH_AUTH_SOCK 通过 environment.d 写入：niri config.kdl 中 dms.sh 已经
+# 追加过一个 environment {} 块，niri 不允许重复，因此环境变量必须走
+# environment.d。
 # =============================================================================
 
 set -euo pipefail
@@ -22,14 +19,13 @@ source "$REPO_DIR/lib/fs.sh"
 
 # -- DankKDEConnect 插件 ------------------------------------------------------
 header "DankKDEConnect plugin"
-_plugins_base="$HOME/.config/DankMaterialShell/plugins"
-_kdeconnect_dst="$_plugins_base/DankKDEConnect"
+_plugins_dir="$HOME/.config/DankMaterialShell/plugins"
+_kdeconnect_dst="$_plugins_dir/DankKDEConnect"
 
 if [[ -d "$_kdeconnect_dst" ]]; then
     warn "DankKDEConnect plugin already installed: $_kdeconnect_dst"
 else
-    mkdir -p "$_plugins_base"
-
+    mkdir -p "$_plugins_dir"
     (
         set -euo pipefail
         _tmp="$(mktemp -d /tmp/dms-plugins.XXXXXX)"
@@ -41,16 +37,13 @@ else
             cp -r "$_tmp/dms-plugins/DankKDEConnect" "$_kdeconnect_dst"
             success "DankKDEConnect plugin installed: $_kdeconnect_dst"
         else
-            warn "DankKDEConnect subdirectory not found, please check the dms-plugins repository structure"
+            warn "DankKDEConnect subdirectory not found in dms-plugins repo"
         fi
     )
 fi
-unset _plugins_base _kdeconnect_dst
+unset _plugins_dir _kdeconnect_dst
 
 # -- SSH_AUTH_SOCK 写入 environment.d -----------------------------------------
-# BUG FIX: 不在 niri config.kdl 里新增 environment {} 块（dms.sh 已追加过一个，
-# niri 不允许重复）。改用 ~/.config/environment.d/ 设置环境变量，
-# systemd 会在用户会话启动时自动加载，所有应用（包括 valent）均可继承。
 header "Valent SSH_AUTH_SOCK (environment.d)"
 _uid="$(id -u)"
 _env_file="$HOME/.config/environment.d/valent.conf"
@@ -68,7 +61,7 @@ fi
 unset _uid _env_file
 
 # -- Valent spawn-at-startup（niri config）------------------------------------
-# 只追加 spawn-at-startup，不新增 environment {} 块，避免 niri parse 报错。
+# 仅追加 spawn-at-startup，不再新增 environment {} 块以免与 dms.sh 冲突
 header "Valent niri spawn-at-startup"
 _niri_cfg="$HOME/.config/niri/config.kdl"
 
@@ -78,7 +71,7 @@ if [[ ! -f "$_niri_cfg" ]]; then
     warn "niri config does not exist -- created empty file"
 fi
 
-if grep -q 'valent' "$_niri_cfg" 2>/dev/null; then
+if grep -q 'valent' "$_niri_cfg"; then
     warn "niri: valent spawn-at-startup already exists, skipping"
 else
     cat >>"$_niri_cfg" <<'NIRI_VALENT'
@@ -95,7 +88,7 @@ unset _niri_cfg
 success "KDE Connect / Valent config done"
 info "后续步骤（首次登录后手动完成）："
 info "  1. 手机安装 KDE Connect app（Android / iOS 均可）"
-info "  2. 打开 DMS Settings → Plugins → Scan for Plugins"
+info "  2. 打开 DMS Settings -> Plugins -> Scan for Plugins"
 info "  3. 启用 DankKDEConnect，将手机电量 widget 添加到 DankBar layout"
 info "  4. 执行 dms restart 重启 shell"
 info "  5. 在手机 / 桌面端的 Valent UI 中完成配对"

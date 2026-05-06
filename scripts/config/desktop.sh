@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# scripts/config/desktop.sh -- Starship / Kanata / greetd / Bluetooth / PipeWire / DMS
+# scripts/config/desktop.sh -- Kanata / greetd / Bluetooth / PipeWire / GTK / DMS
 # =============================================================================
 
 set -euo pipefail
@@ -10,7 +10,19 @@ source "$REPO_DIR/lib/utils.sh"
 source "$REPO_DIR/lib/fs.sh"
 source "$REPO_DIR/lib/svc.sh"
 
-# -- Kanata -------------------------------------------------------------------
+# 私有：用 sudo + tee 原子写入 root 拥有的文件，已存在则跳过
+_sudo_write_if_absent() {
+    local path="$1" content="$2"
+    if [[ -f "$path" ]]; then
+        warn "$path already exists, skipping"
+    else
+        sudo mkdir -p "$(dirname "$path")"
+        printf '%s\n' "$content" | sudo tee "$path" >/dev/null
+        success "Written: $path"
+    fi
+}
+
+# -- Kanata 配置 --------------------------------------------------------------
 header "Kanata"
 copy_config "$REPO_DIR/config/input/kanata.kbd" "$HOME/.config/kanata/kanata.kbd"
 
@@ -33,37 +45,20 @@ success "Written: kanata.service"
 # -- Kanata 输入权限 ----------------------------------------------------------
 header "Kanata input permissions"
 
-if [[ ! -f /etc/modules-load.d/uinput.conf ]]; then
-    echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf >/dev/null
-    success "Written: /etc/modules-load.d/uinput.conf"
-else
-    warn "/etc/modules-load.d/uinput.conf already exists, skipping"
-fi
+_sudo_write_if_absent /etc/modules-load.d/uinput.conf "uinput"
 
-_UINPUT_RULE='/etc/udev/rules.d/99-uinput.rules'
-if [[ ! -f "$_UINPUT_RULE" ]]; then
-    echo 'KERNEL=="uinput", MODE="0660", GROUP="uinput", OPTIONS+="static_node=uinput"' |
-        sudo tee "$_UINPUT_RULE" >/dev/null
-    success "Written: $_UINPUT_RULE"
-else
-    warn "$_UINPUT_RULE already exists, skipping"
-fi
-unset _UINPUT_RULE
+_sudo_write_if_absent /etc/udev/rules.d/99-uinput.rules \
+    'KERNEL=="uinput", MODE="0660", GROUP="uinput", OPTIONS+="static_node=uinput"'
 
 sudo groupadd -f uinput
+_user="$(whoami)"
 for _grp in input uinput; do
-    if id -nG "$(whoami)" | grep -qw "$_grp"; then
-        warn "Already in group $_grp, skipping"
-    else
-        sudo usermod -aG "$_grp" "$(whoami)"
-        success "Added $(whoami) to group $_grp (re-login to apply)"
-    fi
+    add_user_to_group "$_user" "$_grp"
 done
-unset _grp
+unset _user _grp
 
 # -- greetd -------------------------------------------------------------------
 header "greetd"
-
 sudo mkdir -p /etc/greetd
 sudo tee /etc/greetd/config.toml >/dev/null <<'EOF'
 [terminal]
@@ -85,11 +80,13 @@ enable_system_service bluetooth.service
 header "Power profiles"
 enable_system_service power-profiles-daemon.service
 
-# -- systemd user daemon-reload -----------------------------------------------
+# -- systemd user daemon-reload ----------------------------------------------
 header "systemd user daemon-reload"
-systemctl --user daemon-reload 2>/dev/null &&
-    success "systemd user daemon reloaded" ||
+if systemctl --user daemon-reload 2>/dev/null; then
+    success "systemd user daemon reloaded"
+else
     warn "systemd --user daemon-reload failed (no live session?)"
+fi
 
 # -- PipeWire -----------------------------------------------------------------
 header "PipeWire"
@@ -103,16 +100,13 @@ header "Kanata enable"
 enable_user_service kanata.service
 
 # -- GTK 动态取色 -------------------------------------------------------------
-# BUG FIX: adw-gtk-theme 已由 pacman.sh 安装，但 Nautilus 等 GTK 应用若没有通过
-# gsettings 把主题切换到 adw-gtk3-dark，则 DMS 生成的 dank-colors.css 无法生效。
-# 同时预先写入 @import 兜底规则，DMS gtkThemingEnabled=true 会在首次运行时把这两个
-# 文件替换成真正指向 dank-colors.css 的 symlink。
-# 修复：niri 是非 GNOME 环境，settings.ini 才是 GTK 原生配置方式，不依赖 D-Bus
+# adw-gtk-theme 由 pacman.sh 安装，但 GTK 应用必须显式指定 adw-gtk3-dark
+# 才会加载 DMS 生成的 dank-colors.css。niri 是非 GNOME 环境，settings.ini
+# 由 GTK 直接读取，不依赖 D-Bus / gsettings，是最可靠的方案。
 header "GTK dynamic theming"
 for _gtkv in gtk-3.0 gtk-4.0; do
     _gtkd="$HOME/.config/$_gtkv"
     mkdir -p "$_gtkd"
-    # settings.ini 由 GTK 直接读取，不经 D-Bus，niri session 下正确做法
     if [[ ! -f "$_gtkd/settings.ini" ]]; then
         cat >"$_gtkd/settings.ini" <<'GTKINI'
 [Settings]
@@ -127,9 +121,8 @@ GTKINI
         warn "$_gtkd/settings.ini: gtk-theme-name already set, skipping"
     fi
 
-    # BUG FIX: DMS gtkThemingEnabled=true 运行时会创建 gtk.css -> dank-colors.css
-    # 的软链接，但首次登录前该链接不存在，GTK 应用无法加载动态配色。
-    # 此处预先创建软链接，DMS 运行后会原地覆盖（幂等）。
+    # 预先创建 gtk.css -> dank-colors.css 软链；DMS gtkThemingEnabled=true
+    # 首次运行时会原地覆盖（幂等），覆盖前 GTK 应用已可加载动态配色
     ln -sf dank-colors.css "$_gtkd/gtk.css"
     success "Created symlink: $_gtkd/gtk.css -> dank-colors.css"
 done
@@ -137,8 +130,9 @@ unset _gtkv _gtkd
 
 # -- Alacritty ----------------------------------------------------------------
 header "Alacritty"
-mkdir -p "$HOME/.config/alacritty"
-copy_config "$REPO_DIR/config/alacritty/alacritty.toml" "$HOME/.config/alacritty/alacritty.toml"
+copy_config \
+    "$REPO_DIR/config/alacritty/alacritty.toml" \
+    "$HOME/.config/alacritty/alacritty.toml"
 
 # -- DMS ----------------------------------------------------------------------
 bash "$REPO_DIR/scripts/config/dms.sh"

@@ -4,7 +4,7 @@
 #
 # 用法:
 #   bash scripts/packages.sh              # 安装全部来源
-#   bash scripts/packages.sh pacman aur  # 只安装指定来源
+#   bash scripts/packages.sh pacman aur   # 只安装指定来源
 # =============================================================================
 
 set -euo pipefail
@@ -14,15 +14,12 @@ source "$REPO_DIR/lib/utils.sh"
 
 ALL_SOURCES=(pacman aur flatpak)
 sources=("${ALL_SOURCES[@]}")
-[[ $# -gt 0 ]] && sources=("$@")
+(( $# > 0 )) && sources=("$@")
 
 for src in "${sources[@]}"; do
     pkg_script="$REPO_DIR/scripts/packages/$src.sh"
-    if [[ -f "$pkg_script" ]]; then
-        bash "$pkg_script"
-    else
-        die "Unknown package source: $src (expected: $pkg_script)"
-    fi
+    [[ -f "$pkg_script" ]] || die "Unknown package source: $src (expected: $pkg_script)"
+    bash "$pkg_script"
 done
 
 success "All package sources completed: ${sources[*]}"

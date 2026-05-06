@@ -13,48 +13,45 @@ _PKG_LOADED=1
     return 1
 }
 
-# pacman_install <pkg>... -- 跳过已安装的包
+# -- 私有：从输入中过滤出未安装项 ---------------------------------------------
+# _filter_missing <check_cmd> <pkg>...
+# check_cmd 接受单个包名作为参数，已安装时返回 0；未安装项原样输出到 stdout
+_filter_missing() {
+    local check="$1" pkg
+    shift
+    for pkg in "$@"; do
+        if "$check" "$pkg" &>/dev/null; then
+            warn "Already installed, skipping: $pkg" >&2
+        else
+            printf '%s\n' "$pkg"
+        fi
+    done
+}
+
+_check_pacman() { pacman -Q "$1"; }
+_check_flatpak() { flatpak info "$1"; }
+
+# -- pacman_install <pkg>... --------------------------------------------------
 pacman_install() {
-    local pkg
-    local -a to_install=()
-    for pkg in "$@"; do
-        if pacman -Qi "$pkg" &>/dev/null; then
-            warn "Already installed, skipping: $pkg"
-        else
-            to_install+=("$pkg")
-        fi
-    done
-    [[ ${#to_install[@]} -eq 0 ]] && return 0
-    pacman -S --noconfirm "${to_install[@]}"
+    local -a missing
+    mapfile -t missing < <(_filter_missing _check_pacman "$@")
+    (( ${#missing[@]} == 0 )) && return 0
+    pacman -S --noconfirm --needed "${missing[@]}"
 }
 
-# aur_install <pkg>... -- 通过 yay 安装，跳过已安装的包
+# -- aur_install <pkg>... -----------------------------------------------------
 aur_install() {
-    local pkg
-    local -a to_install=()
-    for pkg in "$@"; do
-        if pacman -Q "$pkg" &>/dev/null; then
-            warn "Already installed, skipping: $pkg"
-        else
-            to_install+=("$pkg")
-        fi
-    done
-    [[ ${#to_install[@]} -eq 0 ]] && return 0
-    yay -S --needed --noconfirm "${to_install[@]}"
+    local -a missing
+    mapfile -t missing < <(_filter_missing _check_pacman "$@")
+    (( ${#missing[@]} == 0 )) && return 0
+    yay -S --noconfirm --needed "${missing[@]}"
 }
 
-# flatpak_install <app-id>... -- 从 Flathub 安装，跳过已安装的应用
+# -- flatpak_install <app-id>... ----------------------------------------------
 flatpak_install() {
-    command -v flatpak &>/dev/null || { error "flatpak is not installed"; return 1; }
-    local app
-    local -a to_install=()
-    for app in "$@"; do
-        if flatpak info "$app" &>/dev/null; then
-            warn "Already installed, skipping: $app"
-        else
-            to_install+=("$app")
-        fi
-    done
-    [[ ${#to_install[@]} -eq 0 ]] && return 0
-    flatpak install -y --noninteractive flathub "${to_install[@]}"
+    command_exists flatpak || die "flatpak is not installed"
+    local -a missing
+    mapfile -t missing < <(_filter_missing _check_flatpak "$@")
+    (( ${#missing[@]} == 0 )) && return 0
+    flatpak install -y --noninteractive flathub "${missing[@]}"
 }

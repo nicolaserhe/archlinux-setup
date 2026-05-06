@@ -22,22 +22,24 @@ git_clone "$ZSH_PLUGIN_DIR/zsh-autosuggestions" \
 git_clone "$ZSH_PLUGIN_DIR/zsh-history-substring-search" \
     https://github.com/zsh-users/zsh-history-substring-search
 
-# syntax-highlighting 必须最后 source（zshrc 里有说明）
+# syntax-highlighting 必须最后 source（顺序见 zshrc）
 git_clone "$ZSH_PLUGIN_DIR/zsh-syntax-highlighting" \
     https://github.com/zsh-users/zsh-syntax-highlighting
 
 header "Default shell"
 _setup_zsh_shell() {
-    local zsh_path="/usr/bin/zsh"
-    grep -qx "$zsh_path" /etc/shells ||
-        sudo sh -c "echo '$zsh_path' >> /etc/shells"
+    local zsh_path="/usr/bin/zsh" current_shell user
+    user="$(whoami)"
 
-    local current_shell
-    current_shell="$(getent passwd "$(whoami)" | cut -d: -f7)"
+    if ! grep -qx "$zsh_path" /etc/shells; then
+        sudo sh -c "echo '$zsh_path' >> /etc/shells"
+    fi
+
+    current_shell="$(getent passwd "$user" | cut -d: -f7)"
     if [[ "$current_shell" == "$zsh_path" ]]; then
         warn "Default shell is already zsh, skipping"
     else
-        sudo usermod -s "$zsh_path" "$(whoami)"
+        sudo usermod -s "$zsh_path" "$user"
         success "Default shell set to zsh (re-login to apply)"
     fi
 }

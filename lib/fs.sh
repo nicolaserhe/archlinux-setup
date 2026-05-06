@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# lib/fs.sh -- 文件系统、Git、sudo 配置助手
+# lib/fs.sh -- 文件系统、Git、sudo、用户/组管理助手
 #
 # 依赖：lib/utils.sh
 # =============================================================================
@@ -31,12 +31,8 @@ setup_temp_nopasswd_sudo() {
     success "Temporary passwordless sudo configured"
 }
 
-# -- 命令检测 -----------------------------------------------------------------
-
-command_exists() { command -v "$1" &>/dev/null; }
-
-# -- Git 克隆（最多重试 3 次）-------------------------------------------------
-# git_clone <dest> <url> [extra git flags...]
+# -- Git 克隆 -----------------------------------------------------------------
+# git_clone <dest> <url> [extra git args...]
 git_clone() {
     local dest="$1" url="$2"
     shift 2
@@ -46,22 +42,20 @@ git_clone() {
         return 0
     fi
 
-    # BUG FIX: 确保父目录存在，否则 git clone 会因路径不存在而报错
+    # 父目录缺失会让 git clone 报错 "could not create work tree"
     mkdir -p "$(dirname "$dest")"
 
-    local attempt
-    for attempt in 1 2 3; do
-        git clone --depth=1 "$@" "$url" "$dest" && break
-        warn "git clone failed (attempt $attempt/3), retrying in 3s..."
+    _do_clone() {
         rm -rf "$dest"
-        sleep 3
-    done
+        git clone --depth=1 "$@" "$url" "$dest"
+    }
 
-    if [[ ! -d "$dest/.git" ]]; then
+    if retry 3 3 _do_clone "$@"; then
+        success "Cloned: $dest"
+    else
         error "git clone failed after 3 attempts: $url"
         return 1
     fi
-    success "Cloned: $dest"
 }
 
 # -- 配置文件复制 -------------------------------------------------------------
@@ -69,13 +63,32 @@ git_clone() {
 copy_config() {
     local src="$1" dest="$2"
 
-    # BUG FIX: 原版未校验源文件是否存在，缺失时会静默复制失败
-    if [[ ! -f "$src" ]]; then
-        error "Source config not found: $src"
-        return 1
-    fi
+    # 缺失源文件时静默 cp 会成功复制 0 字节，必须显式校验
+    [[ -f "$src" ]] || die "Source config not found: $src"
 
     mkdir -p "$(dirname "$dest")"
     cp "$src" "$dest"
     success "Copied: $dest"
+}
+
+# -- 资源文件查找 -------------------------------------------------------------
+# find_asset <dir> <name-glob>: 在 dir 顶层按通用图片后缀匹配，按字典序取第一个
+find_asset() {
+    local dir="$1" pattern="$2"
+    find "$dir" -maxdepth 1 \( \
+        -iname "*.jpg" -o -iname "*.jpeg" \
+        -o -iname "*.png" -o -iname "*.webp" \
+        \) -name "$pattern" 2>/dev/null | sort | head -1
+}
+
+# -- 组管理 -------------------------------------------------------------------
+# add_user_to_group <user> <group>: 用户已在组内则跳过
+add_user_to_group() {
+    local user="$1" group="$2"
+    if id -nG "$user" | grep -qw "$group"; then
+        warn "Already in group $group, skipping: $user"
+    else
+        sudo usermod -aG "$group" "$user"
+        success "Added $user to group $group (re-login to apply)"
+    fi
 }

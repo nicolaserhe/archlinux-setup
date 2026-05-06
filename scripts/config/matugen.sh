@@ -2,16 +2,15 @@
 # =============================================================================
 # scripts/config/matugen.sh -- matugen 模板部署
 #
-# 负责把 config/matugen/ 下的所有模板和配置部署到对应位置。
-# 不负责执行 matugen（由首次登录时的 dms-matugen-init.service 触发）。
+# 只负责把 config/matugen/ 下的模板和配置追加部署到目标位置；
+# 不直接执行 matugen，由首次登录的 dms-matugen-init.service 触发。
 #
-# 新增应用动态配色步骤：
+# 新增动态配色应用：
 #   1. 在 config/matugen/templates/ 下新增 <app>.tera
-#   2. 在下方追加对应的 [templates.<app>] 条目即可
+#   2. 在下方追加对应的 _append_template 调用
 #
-# 注意：本脚本在 desktop.sh（含 dms setup）之后运行。
-#       config.toml 使用追加模式，不覆盖 DMS 已生成的配置，
-#       避免破坏 DMS 自身的取色模板管线。
+# 必须在 desktop.sh（含 dms setup）之后运行：
+# config.toml 使用追加模式，不覆盖 DMS 已生成的配置。
 # =============================================================================
 
 set -euo pipefail
@@ -19,6 +18,29 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$REPO_DIR/lib/utils.sh"
 source "$REPO_DIR/lib/fs.sh"
+
+_MATUGEN_CFG="$HOME/.config/matugen/config.toml"
+
+# _append_template <name> <comment> <input> <output>
+# 用 [templates.<name>] header 作为幂等 marker（dms setup 写入的 header 风格相同）
+_append_template() {
+    local name="$1" comment="$2" input="$3" output="$4"
+    local marker="[templates.${name}]"
+
+    if grep -qF "$marker" "$_MATUGEN_CFG"; then
+        warn "$name template already in matugen config, skipping"
+        return 0
+    fi
+
+    cat >>"$_MATUGEN_CFG" <<EOF
+
+# ${comment}
+${marker}
+input_path  = "${input}"
+output_path = "${output}"
+EOF
+    success "Added $name template to: $_MATUGEN_CFG"
+}
 
 # -- 模板文件 -----------------------------------------------------------------
 header "matugen templates"
@@ -29,55 +51,28 @@ for tpl in "$REPO_DIR/config/matugen/templates/"*.tera; do
 done
 
 # -- config.toml：追加而非覆盖 ------------------------------------------------
-# dms setup 可能已经生成了自己的 matugen config.toml（含 DMS 自身的取色模板）。
-# 这里只追加我们需要的 template 条目，完整保留 DMS 的配置。
+# dms setup 可能已生成 config.toml（含 DMS 自身的取色模板），完整保留它，
+# 仅追加我们需要的 template 条目。
 header "matugen config (append)"
-_cfg="$HOME/.config/matugen/config.toml"
-
-if [[ ! -f "$_cfg" ]]; then
-    # dms setup 未生成 config.toml，手动创建基础版本
-    mkdir -p "$(dirname "$_cfg")"
-    cat >"$_cfg" <<'EOF'
+if [[ ! -f "$_MATUGEN_CFG" ]]; then
+    mkdir -p "$(dirname "$_MATUGEN_CFG")"
+    cat >"$_MATUGEN_CFG" <<'EOF'
 [config]
 reload_apps = false
 EOF
-    success "Created: $_cfg"
+    success "Created: $_MATUGEN_CFG"
 fi
 
-# BUG FIX: 原来检查 '[config.templates.fcitx5]' 但追加的是 '[templates.fcitx5]'，
-# 导致检查永远为 false，每次运行都会重复追加。现在检查与追加的 header 保持一致。
+_append_template fcitx5 \
+    "fcitx5 候选框主题（首次登录时由 matugen 生成，theme.conf 变化时由 path unit 触发热重载）" \
+    "$HOME/.config/matugen/templates/fcitx5.tera" \
+    "$HOME/.local/share/fcitx5/themes/dms/theme.conf"
 
-# 追加 fcitx5 模板条目（幂等）
-if ! grep -qF '[templates.fcitx5]' "$_cfg"; then
-    cat >>"$_cfg" <<EOF
+_append_template starship \
+    "starship 提示符动态配色（首次登录时由 matugen 生成）" \
+    "$HOME/.config/matugen/templates/starship.tera" \
+    "$HOME/.config/starship.toml"
 
-# fcitx5 候选框主题（由 matugen 在首次登录时生成，换壁纸时自动更新）
-# 更新后由 fcitx5-theme-reload.path 触发 fcitx5 热重载
-[templates.fcitx5]
-input_path  = "$HOME/.config/matugen/templates/fcitx5.tera"
-output_path = "$HOME/.local/share/fcitx5/themes/dms/theme.conf"
-EOF
-    success "Added fcitx5 template to: $_cfg"
-else
-    warn "fcitx5 template already in matugen config, skipping"
-fi
-
-# 追加 starship 模板条目（幂等）
-if ! grep -qF '[templates.starship]' "$_cfg"; then
-    cat >>"$_cfg" <<EOF
-
-# starship 提示符动态配色（由 matugen 在首次登录时生成）
-[templates.starship]
-input_path  = "$HOME/.config/matugen/templates/starship.tera"
-output_path  = "$HOME/.config/starship.toml"
-EOF
-    success "Added starship template to: $_cfg"
-else
-    warn "starship template already in matugen config, skipping"
-fi
-
-# 注意：~/.local/share/fcitx5/themes/dms/ 目录不在此处创建。
-# 该目录由 dms-matugen-init.service 的 ExecStartPre 在首次登录时、
-# matugen 实际运行前一刻创建，避免安装阶段出现空目录导致 fcitx5 崩溃。
-unset _cfg
+# 注：~/.local/share/fcitx5/themes/dms/ 由 dms-matugen-init.service 的
+# ExecStartPre 在 matugen 实际运行前创建，避免安装阶段的空目录让 fcitx5 误识别。
 success "matugen config done"
