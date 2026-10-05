@@ -13,7 +13,7 @@ source "$REPO_DIR/lib/svc.sh"
 # -- 包安装 -------------------------------------------------------------------
 # bluez:                 Linux 蓝牙协议栈
 # bluez-utils:           蓝牙管理命令行工具（bluetoothctl）
-# avahi:                 局域网 mDNS/DNS-SD 服务（Valent 设备发现依赖）
+# avahi:                 局域网 mDNS/DNS-SD 服务（KDE Connect 设备发现依赖）
 # power-profiles-daemon: 电源性能模式管理
 header "System service packages"
 pacman_install \

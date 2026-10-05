@@ -104,15 +104,15 @@ Proxy (mihomo) 装在 step 4，由 trap EXIT 卸载 —— 退出后系统上不
 - 所有 .sh 用 `set -Eeuo pipefail` —— `-E` 让 `lib/utils.sh` 的 ERR trap 在子函数里也生效，失败时打印 `source:line: 'cmd' (exit N)`
 - user-phase 脚本里的系统级操作走 `sudo`（`install.sh` 装临时 NOPASSWD 规则、trap 删除）
 - 单 app 重跑（`bash scripts/apps/<name>.sh`）**不依赖** install-tmp NOPASSWD，按需弹密码框
-- **Lint**：仓库根 `.shellcheckrc` 配好规则集，提交前跑 `find install.sh scripts/ lib/ usb/ -name '*.sh' | xargs shellcheck` 应为 CLEAN。`shellcheck` 已加进 `pacman-base.sh` 的 Dev tools 段
+- **门禁**：提交前跑 `just all`（= `just lint` 全仓库静态分析 + `just check` 仓库自检），应全绿。`just lint` = shellcheck（仓库根 `.shellcheckrc` 配好规则集）+ `bash -n`，覆盖面按 shebang 收集，含无 `.sh` 后缀的 `config/helpers/*`；`just check` = `$REPO_DIR/<path>` 引用完整性 + `config/`、`assets/` 是否纳入 git（抓"本机有、新克隆缺"那类错）。`shellcheck` 已加进 `pacman-base.sh` 的 Dev tools 段
 
 ## Ordering constraints
 
-- `aur-bootstrap.sh` → 任何装 AUR 的模块：`login.sh`, `shell.sh`, `dms.sh`, `kdeconnect.sh`, 多数 `apps/*.sh` 调 `aur_install` 需要 yay
+- `aur-bootstrap.sh` → 任何装 AUR 的模块：`login.sh`, `shell.sh`, `dms.sh`, 多数 `apps/*.sh` 调 `aur_install` 需要 yay（`kdeconnect.sh` 只用官方仓库的包，不需要 yay）
 - `flatpak-init.sh` → 任何 Flatpak 应用：注册 Flathub remote，`flatpak_install` 前必须
 - `fonts.sh` → 任何带 CJK/emoji 的应用：部署系统 fontconfig + Flatpak fontconfig override；在 `aur-bootstrap.sh` 后跑（用 sudo 写 `/etc/fonts/conf.d/`）
 - `dms.sh` → `matugen.sh`：matugen 覆盖 DMS 生成的 `config.toml` 里的 `[templates.*]`；先跑 matugen 没有可覆盖的内容
-- `dms.sh` → `kdeconnect.sh`：`kdeconnect.sh` 是 DMS plugin 装载器；`dms.sh` 写所有 niri `config.kdl` 内容（含 Valent `spawn-at-startup`）；`kdeconnect.sh` 只装 plugin + `environment.d` 配置，**不碰** `config.kdl`
+- `dms.sh` → `kdeconnect.sh`：`kdeconnect.sh` 是 DMS plugin 装载器，自己 `mkdir -p` 插件目录，不写 `config.kdl`；两者已无实质依赖（`dms.sh` 只在 `config.kdl` 里**清理**旧的 Valent spawn，不再新增），顺序保留即可
 - `usb/sub2clash/convert.sh` → `flclash.sh`：`flclash.sh` 读 `usb/sub2clash/files/config.yaml`，转换脚本必须先跑
 
 ## See also
@@ -121,7 +121,7 @@ Proxy (mihomo) 装在 step 4，由 trap EXIT 卸载 —— 退出后系统上不
 
 - [docs/config-map.md](docs/config-map.md) —— `config/` 各文件到部署目标的完整映射
 - [docs/decisions.md](docs/decisions.md) —— Software choices（eza vs lsd、gpu-screen-recorder vs wf-recorder、keyd vs kanata 等）
-- [docs/quirks/dms.md](docs/quirks/dms.md) —— DMS / matugen / portals / GTK / Valent 插件相关坑
+- [docs/quirks/dms.md](docs/quirks/dms.md) —— DMS / matugen / portals / GTK / KDE Connect 插件相关坑
 
 - [docs/quirks/input-and-fonts.md](docs/quirks/input-and-fonts.md) —— fcitx5 / rime icon cache / Alacritty 字体 / Noto fontconfig / starship palette
 - [docs/quirks/login.md](docs/quirks/login.md) —— greetd / autologin / lockAtStartup race

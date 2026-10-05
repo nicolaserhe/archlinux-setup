@@ -116,6 +116,65 @@ append_block_once() {
     success "Appended block to $file"
 }
 
+# -- 删除含指定字面量的行 -----------------------------------------------------
+# remove_lines_containing <file> <literal>
+#
+# 就地删除所有含该字面量的行。用途：迁移清理历史版本 append_block_once 写下的块。
+# append_block_once 是单向的（没有对应的移除函数），且它按 marker 判断"是否已追加"，
+# 当整个功能被弃用时，旧机器上的残留块必须显式删掉 —— 否则它会一直生效。
+remove_lines_containing() {
+    local file="$1" literal="$2"
+    # 空字面量能匹配所有行 —— 不挡的话会把整个文件清空。跟 append_block_once
+    # 的空 marker 守卫保持同一标准。（set -u 只挡 unset，不挡空串。）
+    [[ -n "$literal" ]] || die "remove_lines_containing: literal is empty"
+    # 空路径会一路走到 [[ -f "" ]] 为假然后 return 0：调用方看到"成功"，实际
+    # 什么都没做，迁移静默失效。append_block_once / git_clone 对空参数都是 die。
+    [[ -n "$file" ]] || die "remove_lines_containing: file is empty"
+    # 目录同样会被 [[ -f ]] 判假然后静默 return 0。这跟"文件不存在"不是一回事
+    # （后者是幂等跳过），传目录属于调用方写错了，必须响。
+    if [[ -d "$file" ]]; then
+        die "remove_lines_containing: not a regular file: $file"
+    fi
+    # literal 带换行时 grep -F 会按多模式处理（等于多个 -e），一次删掉好几类行
+    # 而且不留痕迹。调用点都是单行字面量，直接在入口堵死。
+    if [[ "$literal" == *$'\n'* ]]; then
+        die "remove_lines_containing: literal contains a newline"
+    fi
+    [[ -f "$file" ]] || return 0
+
+    # grep 退出码：0 有匹配，1 无匹配，>1 是 I/O 错误。只有 1 是正常路径 ——
+    # 把 >1 也当"无匹配"会让迁移在文件不可读时悄悄不生效，留在机器上的
+    # valent spawn 行永远不会被清掉。
+    local rc=0
+    grep -qF -- "$literal" "$file" || rc=$?
+    if ((rc == 1)); then
+        return 0
+    elif ((rc > 1)); then
+        die "remove_lines_containing: grep failed (exit $rc) on $file"
+    fi
+
+    local tmp
+    tmp="$(mktemp)"
+    rc=0
+    # 全文件都匹配时 grep -v 无输出、退出码 1，这是正常结果（文件被清空到零行）
+    grep -vF -- "$literal" "$file" >"$tmp" || rc=$?
+    if ((rc > 1)); then
+        rm -f "$tmp"
+        die "remove_lines_containing: grep failed (exit $rc) on $file"
+    fi
+
+    # 用 cat 覆盖而不是 mv：保持原 inode 与权限位。mktemp 建出来的是 600，
+    # mv 过去会把配置文件降成 600。代价是有一个极短的截断窗口（写失败时
+    # 目标已被截断）——比换掉权限位可接受。写失败时顺手收掉临时文件，
+    # 否则 set -e 直接退出，rm 那行永远轮不到。
+    if ! cat "$tmp" >"$file"; then
+        rm -f "$tmp"
+        die "remove_lines_containing: failed to write $file"
+    fi
+    rm -f "$tmp"
+    success "Removed lines containing: $literal"
+}
+
 # -- 组管理 -------------------------------------------------------------------
 # add_user_to_group <user> <group>: 用户已在组内则跳过
 add_user_to_group() {

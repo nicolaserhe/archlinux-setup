@@ -17,7 +17,6 @@
 | `config/greetd/greetd-wrapper.sh` | `/usr/local/bin/greetd-wrapper.sh` | `login.sh`（regreet → tuigreet fallback） |
 | `config/helpers/dms/brightness` | `~/.local/bin/dms-brightness` | `shell.sh`（亮度 wrapper，自动检测 backlight 设备） |
 | `config/helpers/git-health` | `~/.local/bin/git-health` | `shell.sh` |
-| `config/helpers/valent-send/valent_send.py` | `~/.local/share/nautilus-python/extensions/valent_send.py` | `kdeconnect.sh`（Nautilus 右键 "Send to <device>"；扩展只在 nautilus 启动时加载，部署后需 `nautilus -q`） |
 | `config/input/keyd.conf` | `/etc/keyd/default.conf` | `keyd.sh` |
 | `config/matugen/` | `~/.config/matugen/` | `matugen.sh` |
 | `config/niri/dms/binds.kdl` | `~/.config/niri/dms/binds.kdl` | `dms.sh`（niri keybinds, DMS IPC 集成） |

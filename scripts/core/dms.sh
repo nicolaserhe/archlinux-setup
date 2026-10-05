@@ -153,9 +153,6 @@ environment {
 }
 NIRI_ENV
 
-# Valent spawn-at-startup（集中在此，避免 kdeconnect.sh 也写 config.kdl）
-# SSH_AUTH_SOCK 通过 environment.d/valent.conf 注入，不能加进上面的 environment{}
-# 块——niri 不允许同名顶层块重复出现。
 append_block_once "$_niri_cfg" 'hotkey-overlay' <<'NIRI_HOTKEY'
 // 禁用开机自动弹出的快捷键说明浮层
 hotkey-overlay {
@@ -163,12 +160,21 @@ hotkey-overlay {
 }
 NIRI_HOTKEY
 
-append_block_once "$_niri_cfg" 'valent' <<'NIRI_VALENT'
-// KDE Connect / Valent: 作为后台 gapplication service 启动
-// SSH_AUTH_SOCK 由 environment.d/valent.conf 提供
-spawn-at-startup "systemctl" "--user" "import-environment" "SSH_AUTH_SOCK"
-spawn-at-startup "valent" "--gapplication-service"
-NIRI_VALENT
+# Valent 后端已弃用，改用上游 kdeconnectd —— 它的启动走包自带的 XDG autostart，
+# 不需要往 niri config 里写 spawn-at-startup（见 kdeconnect.sh）。
+# 旧版本在这里追加过两行 spawn，做迁移清理：append_block_once 是单向的，
+# 功能弃用时必须显式删掉旧机器上的残留块，否则它一直生效。
+if [[ -f "$_niri_cfg" ]]; then
+    for _stale in \
+        '// KDE Connect / Valent: 作为后台 gapplication service 启动' \
+        '// SSH_AUTH_SOCK 由 environment.d/valent.conf 提供' \
+        'spawn-at-startup "systemctl" "--user" "import-environment" "SSH_AUTH_SOCK"' \
+        'spawn-at-startup "valent" "--gapplication-service"'
+    do
+        remove_lines_containing "$_niri_cfg" "$_stale"
+    done
+    unset _stale
+fi
 
 unset _niri_cfg
 

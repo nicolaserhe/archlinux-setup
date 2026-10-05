@@ -38,6 +38,8 @@ graphical-session.target
   ├─ fcitx5.service               (ours)
   ├─ fcitx5-theme-reload.path     (ours, watches themes/Matugen/theme.conf)
   │                               → try-restart fcitx5.service
+  ├─ app-org.kde.kdeconnect.daemon@autostart.service
+  │                               (generated from /etc/xdg/autostart/, kdeconnectd)
   ├─ dms-initial-settings.service (ours, IPC writes — settings + profile)
   └─ dms-matugen-init.service     (ours, oneshot matugen,
                                    After=dms-initial-settings)
@@ -81,7 +83,10 @@ graphical-session.target
 
 ### DankKDEConnect plugin
 
-- **Tile 显示"无设备"但详情面板有设备（stale ID 死锁）**：`~/.config/DankMaterialShell/plugin_settings.json` 的 `dankKDEConnect.selectedDeviceId` 存了陈旧 ID（重新配对手机 / 重装 Valent 都会换新 ID）。Plugin 拿旧 ID 在 `PhoneConnectService.devices` 字典查不到 → `selectedDevice=null` → tile 显示 "No devices"；详情面板列**所有** devices → 显示真实设备。auto-select（`DankKDEConnect.qml:64`）只在 `selectedDeviceId === ""` 时触发，非空但失效就死锁；详情面板里 device item `selectable: deviceIds.length > 1`，单设备时点不动。Fix：`busctl --user call ca.andyholmes.Valent /ca/andyholmes/Valent org.freedesktop.DBus.ObjectManager GetManagedObjects` 拿实测 ID，写入 plugin_settings.json，重启 DMS。光重启 DMS 不够 —— `onDevicesListChanged` 初始信号可能在 plugin 订阅前就发了。
+**后端选型：上游 KDE Connect（`kdeconnectd`），不用 Valent。** kdeconnect 在官方仓库、随 KDE Gear 稳定发版；Valent 是 AUR 的 alpha（`1.0.0.alpha.x`）。插件两种后端都支持（`services/KDEConnectService.qml` 与 `ValentService.qml` 并存），换后端不丢功能。启动走包自带的 `/etc/xdg/autostart/org.kde.kdeconnect.daemon.desktop`，由 systemd 的 xdg-autostart-generator 生成受管 unit —— 不写 niri spawn-at-startup、不自建 unit，少一条拉起路径就少一个重复实例的来源。
+
+- **Tile 显示"无设备"但详情面板有设备（stale ID 死锁）**：`~/.config/DankMaterialShell/plugin_settings.json` 的 `dankKDEConnect.selectedDeviceId` 存了陈旧 ID（重新配对设备 / 换后端实现 / 重装都会换新 ID）。Plugin 拿旧 ID 在 `PhoneConnectService.devices` 字典查不到 → `selectedDevice=null` → tile 显示 "No devices"；详情面板列**所有** devices → 显示真实设备。auto-select（`DankKDEConnect.qml:64`）只在 `selectedDeviceId === ""` 时触发，非空但失效就死锁；详情面板里 device item `selectable: deviceIds.length > 1`，单设备时点不动。Fix：`kdeconnect-cli -l --id-only` 拿实测 ID（Valent 后端时代用 `busctl --user call ca.andyholmes.Valent /ca/andyholmes/Valent org.freedesktop.DBus.ObjectManager GetManagedObjects`），写入 plugin_settings.json，重启 DMS。光重启 DMS 不够 —— `onDevicesListChanged` 初始信号可能在 plugin 订阅前就发了。
+- **同一个协议只能有一个守护进程**：KDE Connect 与 Valent 都实现协议，同时跑会抢 `org.kde.kdeconnect` 总线名并各自做一遍设备发现。后端只能选一个；`kdeconnect.sh` 会清掉 Valent 时代的残留（手工 mask、GCR SSH agent 环境变量、valent 专用 nautilus 扩展），并停掉还在跑的 valent 进程 —— 它不是 systemd unit，光卸包不会让它退出。另外它还会删用户级 `~/.config/autostart/org.kde.kdeconnect.daemon.desktop`：那份**不是** Valent 的，是旧版 kdeconnect 留下的陈旧拷贝，按 basename 遮蔽包自带的新版本（那份覆盖里带 `Hidden=true` 等禁用标记时不删，那是用户有意的选择）。
 
 ## Why no `dankinstall`
 

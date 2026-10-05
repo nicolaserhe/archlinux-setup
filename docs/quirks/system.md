@@ -13,7 +13,7 @@
 
 ## System services
 
-- **Avahi required for Valent/KDE Connect 设备发现**：没有 `avahi-daemon.service` enabled，手机在 LAN 上发现不了桌面。`system-services.sh` enable 它。
+- **Avahi required for KDE Connect 设备发现**：没有 `avahi-daemon.service` enabled，手机在 LAN 上发现不了桌面。`system-services.sh` enable 它。
 - **Notification daemon conflicts**：DMS 注册 `org.freedesktop.Notifications`。已有的 `mako`/`dunst`/`notification-daemon` 阻塞 `dms.service`（systemd: `Two services allocated for the same bus name`）。`scripts/preflight.sh` 在 `install.sh` 早期自动检测这三个包并 die，让用户先 `sudo pacman -Rns mako dunst notification-daemon` + `systemctl --user disable --now ...` 再继续。
 - **Power management daemon conflicts**：`system-services.sh` 装 `power-profiles-daemon` 管 CPU 频率/电源策略。`tlp`/`auto-cpufreq`/`cpupower` 同样接管这一职责，同时运行会互相覆盖设置（PPD ↔ tlp 是众所周知互斥）。`scripts/preflight.sh` 同样检测并 die，提示用户先 `sudo pacman -Rns <pkg>` + `sudo systemctl disable --now <pkg>` 再继续。
 
