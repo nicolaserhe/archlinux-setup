@@ -118,7 +118,9 @@ pacman_install go rust nodejs npm
 
 # -- 开发工具链 ---------------------------------------------------------------
 # clang:       C/C++ 编译器，AUR 包编译依赖（rust -sys binding 等需要）
-# shellcheck:  bash 静态分析（仓库根 .shellcheckrc 配置规则集）
+# bash lint:   shellcheck（仓库根 .shellcheckrc 配置规则集）
+#              注意：这行不能写成 "# shellcheck: ..." —— shellcheck 会把
+#              行首的 "# shellcheck " 当成指令解析，报 SC1073/SC1072。
 header "Dev tools"
 pacman_install clang shellcheck
 
