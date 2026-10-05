@@ -121,7 +121,8 @@ Proxy (mihomo) 装在 step 4，由 trap EXIT 卸载 —— 退出后系统上不
 
 - [docs/config-map.md](docs/config-map.md) —— `config/` 各文件到部署目标的完整映射
 - [docs/decisions.md](docs/decisions.md) —— Software choices（eza vs lsd、gpu-screen-recorder vs wf-recorder、keyd vs kanata 等）
-- [docs/quirks/dms.md](docs/quirks/dms.md) —— DMS / matugen / portals / GTK / KDE Connect 插件相关坑
+- [docs/quirks/dms.md](docs/quirks/dms.md) —— DMS / matugen / portals / GTK / KDE Connect 插件（UI 层）相关坑
+- [docs/quirks/kdeconnect.md](docs/quirks/kdeconnect.md) —— KDE Connect 守护进程 / 设备发现 / 插件能力查询 / 文件传输 / `isPluginSupported` 日志噪音
 
 - [docs/quirks/input-and-fonts.md](docs/quirks/input-and-fonts.md) —— fcitx5 / rime icon cache / Alacritty 字体 / Noto fontconfig / starship palette
 - [docs/quirks/login.md](docs/quirks/login.md) —— greetd / autologin / lockAtStartup race

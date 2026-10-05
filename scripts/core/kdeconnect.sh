@@ -25,7 +25,9 @@ source "$REPO_DIR/lib/pkg.sh"
 
 # -- 包安装 -------------------------------------------------------------------
 # kdeconnect:      KDE Connect 守护进程 + kdeconnect-cli
-# sshfs:           kdeconnect 的可选依赖，「浏览设备文件」（SFTP）需要
+# sshfs:           kdeconnect 的可选依赖，「浏览设备文件」（SFTP）需要。但它只是
+#                  客户端 —— 对端得自己提供 SFTP 服务端；Windows 版 KDE Connect
+#                  不提供，对 win 这类对端该功能不可用（见 docs/quirks/kdeconnect.md）
 # nautilus-python: nautilus 加载 Python 扩展的桥。右键 Send to device 由
 #                  kdeconnect 自带的 /usr/share/nautilus-python/extensions/
 #                  kdeconnect-share.py 提供，没有这个桥就不加载

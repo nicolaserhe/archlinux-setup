@@ -83,6 +83,8 @@ graphical-session.target
 
 ### DankKDEConnect plugin
 
+守护进程、设备发现、插件能力查询、文件传输这些**后端层**的坑在 [kdeconnect.md](kdeconnect.md)，本节只讲插件层。
+
 **后端选型：上游 KDE Connect（`kdeconnectd`），不用 Valent。** kdeconnect 在官方仓库、随 KDE Gear 稳定发版；Valent 是 AUR 的 alpha（`1.0.0.alpha.x`）。插件两种后端都支持（`services/KDEConnectService.qml` 与 `ValentService.qml` 并存），换后端不丢功能。启动走包自带的 `/etc/xdg/autostart/org.kde.kdeconnect.daemon.desktop`，由 systemd 的 xdg-autostart-generator 生成受管 unit —— 不写 niri spawn-at-startup、不自建 unit，少一条拉起路径就少一个重复实例的来源。
 
 - **Tile 显示"无设备"但详情面板有设备（stale ID 死锁）**：`~/.config/DankMaterialShell/plugin_settings.json` 的 `dankKDEConnect.selectedDeviceId` 存了陈旧 ID（重新配对设备 / 换后端实现 / 重装都会换新 ID）。插件里**没有任何路径会重置非空的失效 ID**，所以这确实是个死锁：
