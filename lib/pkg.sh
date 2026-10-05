@@ -44,7 +44,13 @@ pacman_install() {
 # 只对已安装的包执行 -R；未安装项静默跳过。-R 不连带卸载依赖，
 # 留 orphan 给用户用 `pacman -Rns $(pacman -Qdtq)` 自己清。
 pacman_remove() {
-    local -a present
+    # 必须写成 `=()`：`local -a present` 只把变量标成数组类型、并不赋值，
+    # 在 set -u 下它仍算 unset，下面 ${#present[@]} 会直接以
+    # "present: unbound variable" 中止 —— 而"一个包都没装"恰恰是最常见的路径
+    # （脚本对未安装的包就是静默跳过）。全仓库其余的数组声明要么带字面量初始化，
+    # 要么后面紧跟 mapfile / read -ra（这俩在空输入、命令失败时也一定会赋值），
+    # 只有这一处是"先声明、再在循环里按条件累加"。
+    local -a present=()
     local pkg
     for pkg in "$@"; do
         if pacman -Q "$pkg" &>/dev/null; then
