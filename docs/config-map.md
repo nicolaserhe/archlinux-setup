@@ -6,6 +6,7 @@
 |---|---|---|
 | `config/alacritty/alacritty.toml` | `~/.config/alacritty/alacritty.toml` | `shell.sh` |
 | `config/alacritty/dracula.toml` | `~/.config/alacritty/dracula.toml` | `shell.sh` |
+| `config/autostart/org.fcitx.Fcitx5.desktop` | `~/.config/autostart/org.fcitx.Fcitx5.desktop` | `fcitx.sh`（`Hidden=true`，屏蔽 XDG autostart 与自建 unit 的重复拉起） |
 | `config/dms/settings.json` | merged into `~/.config/DankMaterialShell/settings.json` | `dms.sh`（inline Python deep-merge） |
 | `config/dms/environment.conf` | `~/.config/environment.d/90-dms.conf` | `dms.sh` |
 | `config/dms/portals.conf` | `~/.config/xdg-desktop-portal/portals.conf` | `dms.sh`（portal backend 路由） |

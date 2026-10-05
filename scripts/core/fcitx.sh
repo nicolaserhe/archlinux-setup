@@ -3,12 +3,13 @@
 # scripts/core/fcitx.sh -- Fcitx5 + 雾凇拼音
 #
 # 配置文件源：
-#   config/fcitx5/classicui.conf           → ~/.config/fcitx5/conf/classicui.conf
-#   config/fcitx5/profile                  → ~/.config/fcitx5/profile
-#   config/fcitx5/rime/default.custom.yaml → <rime_dir>/default.custom.yaml
+#   config/fcitx5/classicui.conf              → ~/.config/fcitx5/conf/classicui.conf
+#   config/fcitx5/profile                     → ~/.config/fcitx5/profile
+#   config/fcitx5/rime/default.custom.yaml    → <rime_dir>/default.custom.yaml
+#   config/autostart/org.fcitx.Fcitx5.desktop → ~/.config/autostart/（屏蔽 XDG autostart）
 #
 # 配色主题由 matugen 模板生成（输出到 themes/Matugen/）。
-# theme.conf 变化时由 fcitx5-theme-reload.path 监视并通过 systemd 重启 fcitx5
+# theme.conf 变化时由 fcitx5-theme-reload.path 监视并通过 systemd try-restart fcitx5
 # （DMS 模板自带的 post_hook 用 `fcitx5 -r` 会脱离 systemd 跟踪，故走 path unit）。
 # =============================================================================
 
@@ -110,8 +111,16 @@ success "Icon cache updated"
 unset _svg _base _icon_dir _hicolor_root
 
 # -- fcitx5 systemd user service ---------------------------------------------
-# niri-session 走 systemd 而不处理 ~/.config/autostart/，所以必须用
-# systemd user service 拉起 fcitx5
+# 用 systemd user service 拉起 fcitx5（而非依赖 XDG autostart）：这样 fcitx5 受
+# systemd 跟踪，theme-reload 才能用 systemctl --user 管它。
+#
+# 注意 niri 并不"不处理 autostart" —— niri.service 带
+# `Wants=xdg-desktop-autostart.target`，systemd 的 xdg-autostart-generator 仍会从
+# /etc/xdg/autostart/org.fcitx.Fcitx5.desktop 生成 app-org.fcitx.Fcitx5@autostart.service
+# （ExecStart=:/usr/bin/fcitx5，PartOf=graphical-session.target）。
+# 两个实例同时起，撞上 --replace 会互相 SIGTERM；会话重启时演变成 restart 风暴，
+# 最后 unit 停在 inactive，而 on-failure 不覆盖干净退出 → 输入法彻底消失。
+# 所以下面额外部署一份 Hidden=true 的用户级覆盖把 autostart 那条屏蔽掉。
 header "Fcitx5 systemd user service"
 write_user_unit fcitx5.service <<'EOF'
 [Unit]
@@ -121,14 +130,35 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/fcitx5 --replace --verbose "*"=0
-Restart=on-failure
+# default=3：留 Warn/Error。原来写 "*"=0 把日志全关了，主实例在 journal 里
+# 一行都没有，故障时无从排查。（"*" 与 default 是同一个槽位，后写的赢，
+# 所以 "*=0,default=3" 与 "default=3" 等价 —— 直接写 default=3。）
+ExecStart=/usr/bin/fcitx5 --replace --verbose "default=3"
+# always（不是 on-failure）：被 SIGTERM 或干净退出后也要拉回来。
+# on-failure 只覆盖非零退出，正是上次"unit 停在 inactive 不再重启"的原因。
+# 副作用：托盘/`fcitx5-remote -e` 主动退出也会在 3s 后被拉回 —— 想真停就用
+# `systemctl --user stop fcitx5.service`（systemd 发起的 stop 不触发 Restart）。
+Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=graphical-session.target
 EOF
 enable_user_service fcitx5.service
+
+# enable_user_service 失败（无 systemd user session）时只 warn、不建 wants 链。
+# 而 XDG autostart 这条兜底即将被下面屏蔽 —— 屏蔽后就只剩这一条启动路径了，
+# 所以照 path unit 的做法补一次软链，避免"enable 失败 = 输入法永不启动"。
+add_user_service_wants fcitx5.service graphical-session.target
+
+# -- 屏蔽 XDG autostart 的重复拉起 --------------------------------------------
+# 用户级 autostart 文件按 basename 覆盖系统级，Hidden=true 让 generator 直接跳过。
+# 改完要 daemon-reload，否则 generator 仍用着旧快照。
+header "Suppress duplicate XDG autostart entry"
+copy_config \
+    "$REPO_DIR/config/autostart/org.fcitx.Fcitx5.desktop" \
+    "$HOME/.config/autostart/org.fcitx.Fcitx5.desktop"
+systemctl --user daemon-reload || warn "daemon-reload failed; re-login to apply"
 
 # -- 主题热重载（path unit）---------------------------------------------------
 # DMS 换壁纸后 matugen 重新生成 theme.conf，但 fcitx5 不会主动感知变化；
@@ -156,7 +186,12 @@ Description=Reload fcitx5 after DMS matugen theme update
 Type=oneshot
 # matugen 写文件不是原子的；等 1 秒避免读到半截
 ExecStartPre=/bin/sleep 1
-ExecStart=/usr/bin/systemctl --user restart fcitx5.service
+# try-restart（不是 restart）：unit 没在跑（inactive/failed）时就什么都不做。
+# 这样主题变更不会把一个本不该在跑的 fcitx5 提前拉起来 —— 它下次正常启动时
+# 本来就会读到新的 theme.conf。
+# 注意：try-restart 对 active 或 activating 的 unit 都会真的重启，所以它**不**
+# 能防止 matugen 连写多次 theme.conf 带来的反复重启；那由上面的 sleep 1 吸收。
+ExecStart=/usr/bin/systemctl --user try-restart fcitx5.service
 EOF
 
 # .path 文件刚写入，systemctl --user enable 可能因 daemon 未 reload 失败，

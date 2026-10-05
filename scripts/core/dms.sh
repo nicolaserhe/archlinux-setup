@@ -213,8 +213,9 @@ EOF
 success "Written: DMS session.json"
 
 # matugen one-shot：首次 niri 登录后跑一次，跑完自我禁用，避免重复执行。
-# 后续换壁纸时由 DMS 自身的 watcher 触发 matugen；fcitx5 重启则由
-# fcitx5-theme-reload.path（fcitx.sh 创建）监视 theme.conf 触发。
+# 后续换壁纸时由 DMS 自身的 watcher 触发 matugen；fcitx5 重载则由
+# fcitx5-theme-reload.path（fcitx.sh 创建）监视 theme.conf、
+# systemctl --user try-restart fcitx5.service 触发。
 if command_exists dms; then
     write_user_unit dms-matugen-init.service <<EOF
 [Unit]

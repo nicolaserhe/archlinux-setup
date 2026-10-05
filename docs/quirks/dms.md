@@ -37,10 +37,13 @@ graphical-session.target
   │                                on session bus)
   ├─ fcitx5.service               (ours)
   ├─ fcitx5-theme-reload.path     (ours, watches themes/Matugen/theme.conf)
+  │                               → try-restart fcitx5.service
   ├─ dms-initial-settings.service (ours, IPC writes — settings + profile)
   └─ dms-matugen-init.service     (ours, oneshot matugen,
                                    After=dms-initial-settings)
 ```
+
+`app-org.fcitx.Fcitx5@autostart.service`（systemd 从 `/etc/xdg/autostart/org.fcitx.Fcitx5.desktop` 生成，因为 `niri.service` 带 `Wants=xdg-desktop-autostart.target`）被 `~/.config/autostart/org.fcitx.Fcitx5.desktop` 的 `Hidden=true` 显式屏蔽 —— 否则它会和 `fcitx5.service` 同时拉起第二个实例（见 [input-and-fonts.md](input-and-fonts.md#fcitx5-重复拉起)）。
 
 `keyd.service`（系统级，由 `keyd.sh` 启）独立启动早于任何 user session，TTY/greetd 阶段就有正确键位。
 
