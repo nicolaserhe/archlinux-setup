@@ -1,0 +1,19 @@
+# regreet -- greetd 的 GTK4 图形登录界面
+#
+# 仓库拥有（login.sh 用 install_config_root 部署到 /etc/greetd/regreet.toml）。
+# regreet 由 /usr/local/bin/greetd-wrapper.sh 拉起，wrapper 失败时退回 tuigreet。
+
+[background]
+path = ""
+fit = "Cover"
+
+[GTK]
+application_prefer_dark_theme = true
+font_name = "Cantarell 16"
+
+[appearance]
+greeting_msg = "Welcome back"
+
+[widget.clock]
+format = "%a %H:%M"
+resolution = "500ms"

@@ -1,0 +1,20 @@
+# greetd -- 登录管理器主配置
+#
+# 仓库拥有（login.sh 用 install_config_root 部署到 /etc/greetd/config.toml）。
+# 无 autologin：开机走 regreet 选用户输密码，避开 DMS lockAtStartup 在 niri
+# 启动后再锁一次屏（闪桌面 1-2 秒的 race，见 docs/quirks/login.md）。
+
+[terminal]
+vt = 1
+
+[default_session]
+command = "/usr/local/bin/greetd-wrapper.sh"
+user = "greeter"
+
+# -- 想恢复 autologin 就把下面这段取消注释，然后重跑 login.sh ------------------
+# 顺带把 "lockAtStartup": true 加进 config/dms/settings.json 并重跑 dms.sh
+# （该键默认 false，只有写在仓库里才会被部署过去），接受登录后闪一下桌面。
+#
+# [initial_session]
+# command = "niri-session"
+# user = "<USER>"   # 改成你的登录名

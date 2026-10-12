@@ -1,0 +1,22 @@
+# Software choices
+
+为什么选 A 不选 B —— 一次性选定、想换时复查的简短笔记。详细的踩坑在 [quirks/](quirks/)。
+
+- **eza, not lsd**：`lsd` 上游维护变慢；`eza` 是接力者，git 集成更好。Aliases（`ls`/`ll`/`la`/`lt`）用 `--icons=auto`（Nerd Font）。Dracula 配色由 `EZA_COLORS`（24-bit RGB）在 `zshrc` 提供。
+- **gpu-screen-recorder, not wf-recorder**：硬件编码（VAAPI/NVENC/AMF）录制时 CPU 占 1-3%，wf-recorder 软编 30-60%。用 `gsr-toggle` wrapper（Alt+Print），不用 gsr-ui GUI（已移除 —— GUI 关闭时会重写 config）。
+- **keyd, not kanata**：keyd 是系统级 daemon（TTY/greetd 阶段就工作，不需要 user session），极简 INI config。当前配置只有 caps↔esc swap。需要复杂层（tap-hold、app-specific）再迁 kanata。
+- **`easy_anysearch_skill` + Playwright MCP, not 本地 SearXNG / Tavily / Exa**：搜索走 Skill（公网 API，零运维，Claude 自动触发）；JS 渲染 / 反爬 / 需要交互时上 `mcp__playwright__browser_navigate`（`@playwright/mcp` 用系统 chromium + headless）。SearXNG 自建栈用过一段（`websearch` wrapper + docker compose），但 Google/CF 按出口 IP 风控，实际抗压性引擎能拿到的东西 anysearch 也能拿到，运维成本不值，2026-05 撤了。
+- **loupe, not eog/gthumb**：GTK4 + libadwaita 原生图片查看器，accent-color 感知，启动时间比 gthumb 插件加载快。
+- **celluloid, not totem/vlc**：mpv GTK4 前端 —— 继承 mpv 的 VAAPI/NVENC 硬解；totem 不维护，vlc 自带 Qt 主题冲突。
+- **夜间模式 / 剪贴板：交给 DMS 自带，不装 gammastep / cliphist**：DMS 有 `dms ipc call night`（开关 / gamma / 对比度 / 色温 / 自动定位或定时）和 `dms ipc call clipboard toggle`（Mod+V 已绑到它）。原先 base 列表里的这两个包在仓库里**没有任何调用点** —— 没有 unit、没有 keybind、没有配置，装了也不会跑；"用 geoclue 自动定位"那句更是假的（geoclue 从未安装也从未配置）。2026-10 从 `pacman-base.sh` 移除。
+- **gdu, not ncdu**：Go 并行扫描，SSD 上比 ncdu 快 5-10×，输出格式相同。
+- **AUR 包的选择与复核**：官方仓库优先 —— 包一旦进 extra/core 就换回 `pacman_install`（`deskflow`、`yaak` 就是这么迁的；留着 `aur_install` 等于让 yay 绕一圈去装官方包，还挂着一条本不存在的 yay 依赖）。只在 AUR 有时，看四件事：**是否 orphaned**（AUR RPC 的 `Maintainer` 为 null）、票数与最后更新时间、**上游 URL 是否还活着**（`maple-mono-nf-cn` 就是上游仓库 404 而包停在旧版本），以及 `build()` 里有没有跑包管理器/网络脚本（2026 年那波 AUR 投毒的手法就是抢 orphaned 包、在 build 阶段拉 npm/bun）。复核一行：
+  ```bash
+  curl -fsS --get --data-urlencode 'arg[]=包名' https://aur.archlinux.org/rpc/v5/info | python3 -m json.tool
+  ```
+  2026-10-12 按这套核过仓库里的 AUR 调用点：**没有 orphaned**，维护者与更新时间都健康（最低票的是 devtoolbox / rendercv-bin，各 1 票，但都有在维护的维护者）。复核当场剔掉两个：`maple-mono-nf-cn` 上游仓库已 404（换成 archlinuxcn 的包，见下一条），`deskflow` / `yaak` 已进 extra。仍留 AUR 的是 `shell.sh` + `apps/*.sh` 共 8 个包。
+- **字体包走 archlinuxcn（`ttf-maplemono-nf-cn`），不走 AUR（`maple-mono-nf-cn`）**：AUR 那个包（2 票，最后更新 2025-07-25）跟的上游 `subframe7536/maple-mono-nf` 已 404，包停在 7.4-0；archlinuxcn 跟主仓库 `subframe7536/maple-font`，7.9-1 = 上游最新稳定 V7.9。换之前用 `fc-query` 比对过：family（`Maple Mono NF CN`）与 16 个字重的 style 名完全一致，`alacritty.toml` 不受影响。见 [quirks/input-and-fonts.md](quirks/input-and-fonts.md)。
+- **不配 pip / npm / cargo / go / Docker Hub 的国内镜像**：本机已有的 TUN 全局代理就是这些生态唯一的网络路径，镜像只会再添一条会腐坏的第二路径（版本滞后、同步中断、规则要跟着改）。2026-10-12 在本机实测（每个目标连续 3 次取中位，`curl -o /dev/null -w '%{time_total}'`，全是 metadata 不是大页面）：pypi 直连 2.4s vs TUNA 2.8s / 阿里 3.4s（**镜像更慢**）；`index.crates.io` 1.4s vs rsproxy 2.0s（更慢）；`proxy.golang.org` 2.2s vs goproxy.cn 1.6s（打平）；npm 官方 4.2s vs npmmirror 2.0s（**唯一稳定的赢家**，但 `~/.npmrc` 里已经有 `registry=https://registry.npmjs.org/` 这行用户自己的显式选择，那个文件不归仓库管，不去覆盖它）；Docker Hub 的国内公共镜像这几年基本关停，而 `registry-1.docker.io` 本机可达（`/v2/` 返回 401 = 只是没鉴权，不是不可达），所以也不加 `registry-mirrors`。所有请求的 `time_connect` 都是 0.0008s（TUN fake-ip 本地接管），耗时全在出口节点的 TLS/首字节 —— "镜像快不快"在这台机器上取决于代理出口，而不是镜像本身。将来真要加，记得同步 `lib/proxy.sh` 的 `no_proxy`（那里已经列了 pacman 用的 tuna/aliyun）。
+- **docker 的 `daemon.json` 只写日志上限，不写别的**：`json-file` + `max-size 10m` / `max-file 3`（每容器封顶 30MB）。反转了原先"低频用法不值得加一份配置"的判断 —— 依据是本机实际在跑长期容器（`goldtrading-valkey` 连跑 2 小时，`goldtrading-pg` 是停了 13 天的项目容器），而 json-file driver 默认无上限。不换 `local` driver（换 driver 只对新容器生效，结果是老容器 json-file、新容器二进制 local 的格式分裂，而这点量级下 local 的性能优势为零）、不加 `registry-mirrors`（见上一条）、不写在这台 dockerd（29.8.2）上已经是默认值的那些键（containerd snapshotter / iptables / data-root）。生效时机晚两层（daemon 启动时读 + 建容器时快照），已有容器要重建才吃到 —— 见 [quirks/docker.md](quirks/docker.md)。
+- **7zip, not p7zip+unrar**：`extra/7zip` 一个包同时覆盖 7z 和 RAR（自带 unRAR 代码，许可证在 `/usr/share/licenses/7zip/unRarLicense.txt`）。曾经写的"p7zip 拆在 `p7zip`（7z）+ `unrar`（RAR）两个包"已经过期 —— `p7zip` 现在不在任何仓库里（`pacman -Ss '^p7zip$'` 无结果），`extra/unrar` 仍在但只做 RAR 解压。
+- **磁盘 swapfile（16G）+ zswap, not zram / 不开 systemd-oomd**：zram 是内存里的 swap 设备，与已经开着的 zswap 职责重叠（要用它得先关 zswap），真正的适用面是 8-16 GiB 那一档；本机 30 GiB，一个磁盘 swapfile（`/swapfile`）就让 zswap 的压缩层立刻有用，且不与休眠互斥。16G 只求吸收尖峰，不支持休眠（那要 ≥ 内存 + resume hook + ext4 的 `resume_offset`）。`vm.swappiness` 不动：wiki 的 10 是给纯磁盘 swap 的、180 是给 zram 的，本机两种都不是。oomd 不开：Arch wiki 连配方都不给，默认开它的 Fedora/Ubuntu 都杀错过进程，Debian/openSUSE/Mint 不开 —— 加 swap 后"一个进程拖死整个桌面"的窗口已经小很多。见 `scripts/core/memory.sh`。

@@ -1,0 +1,24 @@
+# 目标 shell：所有脚本都用 #!/usr/bin/env bash
+shell=bash
+
+# 跟着 source 关系分析（lib/ 互相 source）。SC1091 已禁，但 external-sources=true
+# 让 shellcheck 在能找到 sourced 文件时仍做跨文件分析（lib/ 文件 path 固定）。
+external-sources=true
+
+# -- 全局启用的可选 check ----------------------------------------------------
+# avoid-nullary-conditions: [ -z "$var" ] 而不是 [ ! "$var" ]，更明确
+# check-unassigned-uppercase: 抓未赋值的 uppercase var
+# SC2310: `func || handler` / `if func` 形态会让函数体内的 errexit 与 ERR trap
+#   全部失效 —— 中段失败被后续命令掩盖，而屏幕上看不到 ERR trap 的 source:line。
+#   本仓库大量用 `run_step <label> <函数>` 包裹步骤，不小心写成 `|| exit 1` 就会
+#   把每个 step 的失败探测能力关掉（曾经真实发生过：_proxy_install_config 里 cp
+#   失败仍打印 success）。默认关着，正是这个坑能长期潜伏的原因。
+#
+# 不开 require-variable-braces (SC2250)：在简单 inline 引用（$REPO_DIR/path）
+# 场景下 ${var} 反而 verbose，仓库已是混合风格，强制只是噪音。
+enable=avoid-nullary-conditions,check-unassigned-uppercase,SC2310
+
+# -- 全局禁用 ----------------------------------------------------------------
+# SC1091: 找不到 sourced file。REPO_DIR 是运行时变量，shellcheck 静态分析无法解析；
+# external-sources=true 已尽力，剩下的没办法。
+disable=SC1091

@@ -1,0 +1,11 @@
+// 仅首次播种（dms.sh 只在文件不存在时部署这一份）。
+// 这个文件同时是 DMS 的窗口规则存储：DMS 启动时会读它、给每条规则打上
+// @id 标记、再追加自己的内置规则后整体重写，之后由 DMS 拥有。
+// 想改规则请用 DMS 的 Window Rules Manager（`dms ipc window-rules toggle`），
+// 不要改这里 —— 改了也会被覆盖。
+//
+// 浏览器画中画弹窗自动浮动（Firefox/Chrome/Edge 都用这个 title）
+window-rule {
+    match title="^Picture-in-Picture$"
+    open-floating true
+}

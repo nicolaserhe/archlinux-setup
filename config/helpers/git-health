@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# git-health — 新项目代码考古，5 个命令快速摸清仓库健康状况
+# 来源: https://piechowski.io/post/git-commands-before-reading-code/
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+header()  { echo -e "\n${BOLD}${CYAN}═══ $1 ═══${NC}"; }
+warn()   { echo -e "${YELLOW}⚠  $1${NC}"; }
+detail() { echo -e "   $1"; }
+hint()   { echo -e "   ${DIM}$1${NC}"; }
+
+usage() {
+  cat <<'EOF'
+Usage: git-health [OPTIONS]
+
+新项目代码考古——快速摸清仓库健康状况。
+在仓库根目录或子目录下运行均可（建议从 app/ 或 src/ 目录运行，避免
+lockfile/changelog/生成代码污染 churn 和 bug 统计结果）。
+
+Options:
+  --since DATE    统计起始日期 (default: "1 year ago")
+  --top N         显示前 N 个文件/贡献者 (default: 20)
+  --path DIR      限定统计范围到指定子目录 (default: 当前目录)
+  --no-bus        跳过 bus factor 统计
+  --no-crisis     跳过危机频率统计
+  -h, --help      显示帮助
+
+Examples:
+  git-health                        # 从当前目录统计
+  git-health --path src             # 限定到 src/
+  git-health --since "6 months ago"
+EOF
+  exit 0
+}
+
+SINCE="1 year ago"
+TOP=20
+TARGET_PATH="."
+SKIP_BUS=false
+SKIP_CRISIS=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --since) SINCE="$2"; shift 2 ;;
+    --top) TOP="$2"; shift 2 ;;
+    --path) TARGET_PATH="$2"; shift 2 ;;
+    --no-bus) SKIP_BUS=true; shift ;;
+    --no-crisis) SKIP_CRISIS=true; shift ;;
+    -h|--help) usage ;;
+    *) echo "Unknown option: $1"; usage ;;
+  esac
+done
+
+# ── Guard ──────────────────────────────────────────────
+if ! git rev-parse --git-dir &>/dev/null; then
+  echo "Not a git repository. Run inside a git working tree."
+  exit 1
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+echo -e "${BOLD}Repo:${NC}  $REPO_ROOT"
+echo -e "${BOLD}Scope:${NC} $TARGET_PATH  ${BOLD}Since:${NC} $SINCE  ${BOLD}Top:${NC} $TOP"
+
+# 提示：从仓库根目录跑 churn/bug 会被 lockfile 污染
+CURRENT_DIR="$(pwd)"
+if [[ "$CURRENT_DIR" == "$REPO_ROOT" ]] && [[ "$TARGET_PATH" == "." ]]; then
+  hint "提示：从仓库根目录统计，lockfile/changelog/生成代码可能占据榜单。"
+  hint "建议用 --path app 或 --path src 限定范围。"
+fi
+
+# ── 1. Code Churn ──────────────────────────────────────
+header "1. Code Churn (改动最频繁的文件)"
+
+CHURN=$(git log --format=format: --name-only --since="$SINCE" -- "$TARGET_PATH" \
+  | sort | uniq -c | sort -nr | head -n "$TOP" || true)
+
+if [[ -z "$CHURN" ]]; then
+  detail "(暂无数据)"
+else
+  echo "$CHURN" | while read -r count file; do
+    if [[ "$count" -gt 20 ]]; then
+      printf "   ${RED}%4d${NC}  %s\n" "$count" "$file"
+    elif [[ "$count" -gt 10 ]]; then
+      printf "   ${YELLOW}%4d${NC}  %s\n" "$count" "$file"
+    else
+      printf "   ${GREEN}%4d${NC}  %s\n" "$count" "$file"
+    fi
+  done
+
+  echo
+  warn "高频改动（红色）→ 可能是「补丁叠补丁」的雷区，改动影响面大。"
+  hint "交叉参考：Bug Hotspots (步骤 3) 中标记 ⚡ 的文件 = 两者均上榜 = 最高风险。"
+fi
+
+# ── 2. Bus Factor ──────────────────────────────────────
+if ! $SKIP_BUS; then
+  header "2. Bus Factor (贡献分布)"
+
+  BUS_ALL=$(git shortlog -sn --no-merges --all 2>/dev/null | head -n "$TOP" || true)
+  BUS_RECENT=$(git shortlog -sn --no-merges --all --since="6 months ago" 2>/dev/null || true)
+
+  if [[ -z "$BUS_ALL" ]]; then
+    detail "(暂无数据)"
+    hint "Squash-merge 工作流会压缩提交者信息，shortlog 反映的是谁 merge 了 PR，不是谁写了代码。"
+  else
+    TOTAL_COMMITS=$(echo "$BUS_ALL" | awk '{sum+=$1} END {print (sum>0 ? sum : 1)}')
+
+    echo "$BUS_ALL" | while read -r count name; do
+      pct=$(awk "BEGIN {printf \"%.0f\", ($count/$TOTAL_COMMITS)*100}")
+      # 检查该人在近6个月是否活跃
+      recent_mark=""
+      if echo "$BUS_RECENT" | grep -qF "$name" 2>/dev/null; then
+        recent_mark=" ✓active"
+      else
+        recent_mark=" ${RED}✗6mo${NC}"
+      fi
+
+      if [[ "$pct" -gt 50 ]]; then
+        printf "   ${RED}%5d  (%2d%%)${NC}%b  %s\n" "$count" "$pct" "$recent_mark" "$name"
+      elif [[ "$pct" -gt 30 ]]; then
+        printf "   ${YELLOW}%5d  (%2d%%)${NC}%b  %s\n" "$count" "$pct" "$recent_mark" "$name"
+      else
+        printf "   ${GREEN}%5d  (%2d%%)${NC}%b  %s\n" "$count" "$pct" "$recent_mark" "$name"
+      fi
+    done
+
+    TOP_CONTRIB=$(echo "$BUS_ALL" | head -1)
+    TOP_COUNT=$(echo "$TOP_CONTRIB" | awk '{print $1}')
+    TOP_NAME=$(echo "$TOP_CONTRIB" | awk '{$1=""; print $0}' | sed 's/^[[:space:]]*//')
+    TOP_PCT=$(awk "BEGIN {printf \"%.0f\", ($TOP_COUNT/$TOTAL_COMMITS)*100}")
+
+    echo
+    if [[ "$TOP_PCT" -gt 60 ]]; then
+      warn "Bus factor 告警：$TOP_NAME 占 ${TOP_PCT}%，单人依赖风险极高。"
+    elif [[ "$TOP_PCT" -gt 30 ]]; then
+      warn "$TOP_NAME 占 ${TOP_PCT}%，贡献集中度偏高。"
+    fi
+
+    if [[ -n "$TOP_NAME" ]] && ! echo "$BUS_RECENT" | grep -qF "$TOP_NAME" 2>/dev/null; then
+      warn "$TOP_NAME 近 6 个月无提交（✗6mo）—— 关键人物可能已离开。"
+    fi
+
+    # Tail: 尾部贡献者
+    TAIL_COUNT=$(echo "$BUS_ALL" | awk -v t="$TOTAL_COMMITS" '$1 < t*0.05 {print}' | wc -l)
+    TOTAL_AUTHORS=$(echo "$BUS_ALL" | wc -l)
+    if [[ "$TAIL_COUNT" -gt $((TOTAL_AUTHORS / 2)) ]]; then
+      warn "尾部长尾明显：${TAIL_COUNT}/${TOTAL_AUTHORS} 人贡献不足 5%，大量历史知识可能已流失。"
+    fi
+
+    hint "Squash-merge 工作流会压缩提交者信息——shortlog 反映的是谁 merge PR，不是谁写代码。"
+  fi
+fi
+
+# ── 3. Bug Hotspots ────────────────────────────────────
+# 原文故意不加 --since：bug 热点是累积信号，3 年前的 bug 文件今天仍是高风险
+header "3. Bug Hotspots (Bug 修复热点 · 全量历史)"
+
+BUGS=$(git log -i -E --grep="fix|bug|broken" --name-only --format='' -- "$TARGET_PATH" \
+  | sort | uniq -c | sort -nr | head -n "$TOP" || true)
+
+if [[ -z "$BUGS" ]]; then
+  detail "(暂无数据 — 可能 commit message 不规范或没有 bug fix 记录)"
+else
+  echo "$BUGS" | while read -r count file; do
+    if echo "$CHURN" | grep -qF "$file" 2>/dev/null; then
+      printf "   ${RED}%4d  ⚡${NC}  %s\n" "$count" "$file"
+    else
+      printf "   ${YELLOW}%4d${NC}     %s\n" "$count" "$file"
+    fi
+  done
+
+  echo
+  warn "⚡ = 同时出现在 Churn 和 Bug 列表 —— 最高风险文件：反复坏、反复修、从未根治。"
+  hint "依赖 commit message 规范性。团队写 'update stuff' 就拿不到数据。"
+fi
+
+# ── 4. Project Trajectory ──────────────────────────────
+header "4. Project Trajectory (提交趋势 · 全量历史)"
+
+TRAJECTORY=$(git log --format='%ad' --date=format:'%Y-%m' \
+  | sort | uniq -c | tail -24 || true)
+
+if [[ -z "$TRAJECTORY" ]]; then
+  detail "(暂无数据)"
+else
+  echo "$TRAJECTORY" | while read -r count month; do
+    bars=$((count > 50 ? 50 : count))
+    bar=$(printf '%*s' "$bars" '' | tr ' ' '#')
+    printf "   %s  %4d  %s\n" "$month" "$count" "$bar"
+  done
+
+  # 检测趋势
+  HALF_LINE=$(( $(echo "$TRAJECTORY" | wc -l) / 2 ))
+  if [[ "$HALF_LINE" -gt 0 ]]; then
+    FIRST_HALF=$(echo "$TRAJECTORY" | head -"$HALF_LINE" | awk '{sum+=$1} END {print sum+0}')
+    SECOND_HALF=$(echo "$TRAJECTORY" | tail -"$HALF_LINE" | awk '{sum+=$1} END {print sum+0}')
+    echo
+    if [[ "$SECOND_HALF" -gt 0 ]] && [[ "$FIRST_HALF" -gt 0 ]]; then
+      RATIO=$(awk "BEGIN {printf \"%.1f\", ($SECOND_HALF/$FIRST_HALF)}")
+      if (( $(awk "BEGIN {print ($RATIO < 0.5)}") )); then
+        warn "后半段提交量仅为前半段的 ${RATIO}x —— 项目活跃度大幅下降。"
+      elif (( $(awk "BEGIN {print ($RATIO < 0.8)}") )); then
+        warn "后半段提交量是前半段的 ${RATIO}x —— 活跃度有所下降。"
+      else
+        detail "活跃度相对稳定（${RATIO}x）。"
+      fi
+    fi
+  fi
+
+  hint "单月量减半 = 可能有人离开。周期性脉冲+沉寂 = 集中发版非持续交付。"
+fi
+
+# ── 5. Crisis Frequency ────────────────────────────────
+if ! $SKIP_CRISIS; then
+  header "5. Crisis / Firefighting (危机频率)"
+
+  CRISIS=$(git log --oneline --since="$SINCE" \
+    | grep -iE 'revert|hotfix|emergency|rollback' || true)
+
+  if [[ -z "$CRISIS" ]]; then
+    detail "未检测到 revert/hotfix/emergency/rollback 记录。"
+    hint "可能是稳定，也可能是 commit message 不够规范。"
+  else
+    CRISIS_COUNT=$(echo "$CRISIS" | wc -l)
+    echo "$CRISIS" | head -n "$TOP"
+    echo
+    if [[ "$CRISIS_COUNT" -gt 10 ]]; then
+      warn "过去一年 $CRISIS_COUNT 次危机操作 —— 团队可能不信任部署流程。"
+    elif [[ "$CRISIS_COUNT" -gt 3 ]]; then
+      warn "过去一年 $CRISIS_COUNT 次危机操作，需关注。"
+    else
+      detail "过去一年 $CRISIS_COUNT 次危机操作，在正常范围。"
+    fi
+  fi
+fi
+
+echo
+echo -e "${BOLD}${CYAN}═══ 完成 ═══${NC}"
+echo "以上是数据快照，结合实际情况判断。重点关注标记为红色的项。"
