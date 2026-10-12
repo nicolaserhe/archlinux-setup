@@ -1,0 +1,59 @@
+# 由 matugen 渲染；动态取色已注释，当前使用 Dracula 静态配色
+# 模板源：config/matugen/templates/starship.tera
+
+add_newline = true
+
+format = """
+[](bold #bd93f9) $os$username$hostname$directory$git_branch$git_status\
+$golang$c$rust$nodejs$java$python$docker_context$cmd_duration
+$character
+"""
+
+[os]
+disabled = false
+# dynamic: "bold #{{ colors.primary.default.hex_stripped }}"
+style = "bold #bd93f9"
+
+[os.symbols]
+Arch = "󰣇 "
+Linux = "󰌽 "
+
+[username]
+show_always = true
+# dynamic: "bold #{{ colors.primary.default.hex_stripped }}"
+style_user = "bold #bd93f9"
+format = "[$user]($style) "
+
+[hostname]
+ssh_only = false
+# dynamic: "bold #{{ colors.on_primary_container.default.hex_stripped }}"
+style = "bold #f8f8f2"
+format = "on [󰌢 $hostname]($style) "
+
+[directory]
+# dynamic: "bold #{{ colors.primary.default.hex_stripped }}"
+style = "bold #bd93f9"
+truncation_length = 3
+truncation_symbol = "…/"
+format = "at [$path]($style) "
+
+[golang]
+symbol = " "
+
+[c]
+symbol = " "
+
+[rust]
+symbol = " "
+
+[nodejs]
+symbol = " "
+
+[java]
+symbol = " "
+
+[python]
+symbol = " "
+
+[docker_context]
+symbol = " "

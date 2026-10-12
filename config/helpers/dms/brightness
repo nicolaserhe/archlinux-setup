@@ -1,0 +1,6 @@
+#!/bin/bash
+# Usage: dms-brightness <increment|decrement> [step]
+ACTION="${1:?usage: dms-brightness <increment|decrement> [step]}"
+STEP="${2:-5}"
+DEVICE=$(dms ipc brightness list 2>/dev/null | grep -o 'backlight:[^ ]*' | head -1)
+[ -n "$DEVICE" ] && dms ipc brightness "$ACTION" "$STEP" "$DEVICE"
