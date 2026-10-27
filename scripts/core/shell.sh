@@ -11,9 +11,13 @@ source "$REPO_DIR/lib/fs.sh"
 source "$REPO_DIR/lib/pkg.sh"
 
 # -- Shell & 终端 -------------------------------------------------------------
+# 三个 zsh 插件由 extra 包提供，升级走 pacman；不再 git clone 到用户目录。
 header "Shell & terminal"
 pacman_install \
     zsh \
+    zsh-autosuggestions \
+    zsh-history-substring-search \
+    zsh-syntax-highlighting \
     alacritty \
     eza \
     starship \
@@ -69,21 +73,6 @@ aur_install parabolic
 header "Zsh config"
 copy_config "$REPO_DIR/config/shell/zshrc" "$HOME/.zshrc"
 
-# -- Zsh 插件 -----------------------------------------------------------------
-header "Zsh plugins"
-ZSH_PLUGIN_DIR="$HOME/.config/zsh/plugins"
-mkdir -p "$ZSH_PLUGIN_DIR"
-
-git_clone "$ZSH_PLUGIN_DIR/zsh-autosuggestions" \
-    https://github.com/zsh-users/zsh-autosuggestions
-
-git_clone "$ZSH_PLUGIN_DIR/zsh-history-substring-search" \
-    https://github.com/zsh-users/zsh-history-substring-search
-
-# syntax-highlighting 必须最后 source（顺序见 zshrc）
-git_clone "$ZSH_PLUGIN_DIR/zsh-syntax-highlighting" \
-    https://github.com/zsh-users/zsh-syntax-highlighting
-
 # -- 默认 shell ---------------------------------------------------------------
 header "Default shell"
 _setup_zsh_shell() {
@@ -118,11 +107,26 @@ copy_config \
     "$REPO_DIR/config/alacritty/dracula.toml" \
     "$HOME/.config/alacritty/dracula.toml"
 
+# -- 默认 PDF 打开器 ----------------------------------------------------------
+# papers 由 pacman-base.sh 安装。xdg-mime 只改用户 ~/.config/mimeapps.list，
+# 不碰系统级关联；Chrome 仍可打开 PDF，但双击文件默认走 papers。
+header "Default PDF handler"
+if command_exists papers; then
+    if xdg-mime default org.gnome.Papers.desktop application/pdf; then
+        success "Default PDF handler: papers"
+    else
+        warn "Could not set papers as default PDF handler"
+    fi
+else
+    warn "papers is not installed; PDF default left unchanged"
+fi
+
 # -- Helper scripts -----------------------------------------------------------
 header "Helper scripts"
 install_config "$REPO_DIR/config/helpers/dms/brightness" "$HOME/.local/bin/dms-brightness" 755
 install_config "$REPO_DIR/config/helpers/git-health" "$HOME/.local/bin/git-health" 755
 install_config "$REPO_DIR/config/helpers/gsr-toggle" "$HOME/.local/bin/gsr-toggle" 755
+install_config "$REPO_DIR/config/helpers/screenshot-annotate" "$HOME/.local/bin/screenshot-annotate" 755
 
 # -- Claude Code --------------------------------------------------------------
 header "Claude Code"

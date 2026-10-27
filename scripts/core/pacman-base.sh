@@ -122,18 +122,32 @@ pacman_install go rust nodejs npm
 # bash lint:   shellcheck（仓库根 .shellcheckrc 配置规则集）
 #              注意：这行不能写成 "# shellcheck: ..." —— shellcheck 会把
 #              行首的 "# shellcheck " 当成指令解析，报 SC1073/SC1072。
+# just:        仓库门禁的任务运行器（justfile 的 lint/check/all/drift）
 header "Dev tools"
-pacman_install clang shellcheck
+pacman_install clang shellcheck just
+
+# -- 维护工具 -----------------------------------------------------------------
+# pacman-contrib: paccache（清旧包）/ checkupdates（不触发部分升级的检查）/
+#                 pacdiff（合并包更新留下的 .pacnew）
+# pkgfile:        command-not-found 提示命令属于哪个包；db 由
+#                 system-services.sh 里的 pkgfile-update.timer 维护
+# arch-audit:     对照 Arch Security Team 的公告扫描已装包（CLI，手动跑）
+header "Maintenance tools"
+pacman_install \
+    pacman-contrib \
+    pkgfile \
+    arch-audit
 
 # -- System services 基础 -----------------------------------------------------
-# cups-pk-helper:        打印机 polkit helper
+# 不装 cups / cups-pk-helper：本机没有打印机；cups-pk-helper 是 CUPS 的 polkit
+# 前端，单独存在时什么都不做。将来要打印时再一起装 cups + cups-pk-helper，
+# 并启用 cups.socket。
 # flatpak:               通用 Linux 应用沙箱打包框架
 # gvfs-smb:              GVFS SMB/Windows 网络共享挂载支持
 # accountsservice:       持久化用户头像与账户配置（DMS 头像依赖）
 # polkit-gnome:          polkit 认证代理（GUI 应用提权弹密码框）
 header "System service basics"
 pacman_install \
-    cups-pk-helper \
     flatpak \
     gvfs-smb \
     accountsservice \
@@ -148,9 +162,11 @@ pacman_install \
 # libreoffice-fresh:  办公套件（Writer / Calc / Impress）
 # libnotify:          桌面通知客户端库（notify-send 命令）
 # grim / slurp:       Wayland 截图工具（DMS 的 `dms screenshot` 底层依赖）
+# satty:              GTK4/libadwaita 截图标注（对选区画箭头/文字/马赛克）
 # wl-clipboard:       Wayland 剪贴板读写工具（wl-copy / wl-paste）
 # gnome-keyring:      GNOME 密钥环
 # loupe:              GTK4 图片查看器
+# papers:             GTK4 文档查看器（PDF/DjVu 等，默认 PDF 打开器）
 # celluloid:          mpv GTK 前端（视频播放器）
 # gnome-calculator:   GTK4 计算器
 # gnome-disk-utility: 图形化磁盘管理（格式化/挂载/SMART）
@@ -168,12 +184,14 @@ pacman_install \
     libnotify \
     grim \
     slurp \
+    satty \
     tesseract \
     tesseract-data-eng \
     tesseract-data-chi_sim \
     wl-clipboard \
     gnome-keyring \
     loupe \
+    papers \
     celluloid \
     gnome-calculator \
     gnome-disk-utility

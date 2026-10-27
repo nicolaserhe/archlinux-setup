@@ -105,17 +105,41 @@ eval "$(starship init zsh)"
 eval "$(zoxide init zsh)"
 
 # ── 插件 ─────────────────────────────────────────────────────────────────────
-_zsh_plugin_dir="$HOME/.config/zsh/plugins"
+# 三个插件都由 extra 包提供（zsh-autosuggestions / zsh-history-substring-search /
+# zsh-syntax-highlighting），升级交给 pacman；这里只负责 source。
+_zsh_plugin_dir="/usr/share/zsh/plugins"
 
 [[ -f "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] &&
     source "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh"
 
-[[ -f "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-search.zsh" ]] &&
+# history-substring-search 只定义 widget，不自己绑键。方向键同时覆盖普通序列
+# （^[[A/^[[B）和 application cursor mode（^[OA/^[OB）；Ctrl-P/N 是 Emacs
+# 模式的顺手替代。
+if [[ -f "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-search.zsh" ]]; then
     source "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-search.zsh"
+    bindkey '^[[A' history-substring-search-up
+    bindkey '^[[B' history-substring-search-down
+    bindkey '^[OA' history-substring-search-up
+    bindkey '^[OB' history-substring-search-down
+    bindkey -M emacs '^P' history-substring-search-up
+    bindkey -M emacs '^N' history-substring-search-down
+fi
+
+# fzf：key-bindings 接管 Ctrl-T / Ctrl-R / Alt-C，completion 提供 `**<Tab>`。
+[[ -f /usr/share/fzf/key-bindings.zsh ]] &&
+    source /usr/share/fzf/key-bindings.zsh
+[[ -f /usr/share/fzf/completion.zsh ]] &&
+    source /usr/share/fzf/completion.zsh
 
 # syntax-highlighting 必须最后 source
 [[ -f "$_zsh_plugin_dir/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] &&
     source "$_zsh_plugin_dir/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+
+# ── pkgfile：命令不存在时提示所属包 ─────────────────────────────────────────
+# 钩子文件由 pkgfile 包提供；db 由 pkgfile-update.timer 维护。文件不存在时
+# 静默跳过 —— pkgfile 没装也不该让 zsh 启动报错。
+[[ -f /usr/share/doc/pkgfile/command-not-found.zsh ]] &&
+    source /usr/share/doc/pkgfile/command-not-found.zsh
 
 # ── 本机私有环境（不在仓库里）-------------------------------------------------
 # ~/.zshrc 由仓库拥有（每次 install 无条件覆盖），所以机器专属的东西 ——

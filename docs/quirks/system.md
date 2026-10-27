@@ -17,6 +17,10 @@
 - **Notification daemon conflicts**：DMS 注册 `org.freedesktop.Notifications`。别的通知 daemon 抢到这个名字就阻塞 `dms.service`（systemd: `Two services allocated for the same bus name`）。`scripts/preflight.sh` 在 `install.sh` 早期检测六个 —— `mako`/`dunst`/`swaync`/`fnott`/`xfce4-notifyd`/`notification-daemon`（wlroots 系 + 跨环境 + 老 X11 的），命中就 die 并给出卸载命令。判据是**包在不在**而不是有没有在跑：装了没跑的，下次登录可能被 autostart 拉起来，那时 install 早跑完了，问题会以"通知弹两次"的形式出现。
 - **Power management daemon conflicts**：`system-services.sh` 装 `power-profiles-daemon` 管 CPU 频率/电源策略。`tlp`/`auto-cpufreq`/`cpupower` 同样接管这一职责，同时运行会互相覆盖设置（PPD ↔ tlp 是众所周知互斥）。`tuned-ppd` 比它们更硬：它同时 `Provides` 和 `Conflicts` `power-profiles-daemon`，而 `pacman_install` 走 `--noconfirm`（冲突询问默认答 No），后果是 user-phase **中段**以"包冲突"中止，错误现场离病因很远；`tuned` 是它依赖的真 daemon，自己不声明冲突，但跟 PPD 是同一件事的两种实现。`preflight.sh` 把这五个都列为冲突并 die，让"二选一"发生在安装之前。
 
+## niri spawn 的 PATH
+
+- **niri 的 `spawn` 不继承登录 shell 的 PATH**：`niri --session` 由 systemd user manager 拉起，PATH 只有 `/usr/local/sbin:/usr/local/bin:/usr/bin:...`，没有 `~/.local/bin`。`binds.kdl` 里直接 `spawn "gsr-toggle"` 会静默失败（没有日志、没有窗口）。仓库里的 helper bind 一律用 `spawn-sh "exec \"$HOME/.local/bin/<helper>\" ..."`，由 `sh` 展开 `$HOME`。别把 `$HOME` 写进 `spawn` 参数 —— `spawn` 不经过 shell，`$HOME` 是字面量。
+
 ## lib/utils.sh `run_step` 行为
 
 - **`run_step` LOG_FILE capture 不能吞交互 prompt**：bash `read -rp` 把 prompt 写到 stderr。若只是"重定向进 log、跑完再打出来"（老写法 `cat "$tmpfile" >&2`），prompt 会等到命令结束才出现，而用户要先看到才能输入 —— 交互脚本（如 `setup-user.sh`）看起来就是在静默 hang。Fix：`"$@" > >(tee -a "$LOG_FILE" >&2) 2>&1`，stdout + stderr 都落进 `$LOG_FILE`，tee 同时把内容实时转到 stderr。用 process substitution 而不是 `| tee` 还有第二个理由：pipe 会把子命令放进 subshell，`export TARGET_USER`（install.sh → 后续 step）和 `proxy_start` 导出的代理变量全都传不出去，详见 lib/utils.sh 里那段注释。

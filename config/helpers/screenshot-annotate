@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# screenshot-annotate — 选区截图 → satty 标注 → 复制到剪贴板并保存
+#
+# 部署：shell.sh → ~/.local/bin/screenshot-annotate
+# 绑定：niri 的 Mod+Shift+Print（config/niri/dms/binds.kdl）
+#
+# satty 的 Enter 被配置成「复制 → 保存 → 退出」，Esc 退出不保存。
+# 输出文件名支持 strftime，同秒内连拍会互相覆盖，正常手速不会遇到。
+
+out_dir="$HOME/Pictures/Screenshots"
+mkdir -p "$out_dir"
+
+# slurp 在按 Esc 取消选区时返回非零；这是正常退出，不是错误。
+region="$(slurp)" || exit 0
+[[ -n "$region" ]] || exit 0
+
+# ppm 不压缩，比 png 少一次编解码，适合管道传输。
+grim -g "$region" -t ppm - |
+    satty \
+        --filename - \
+        --fullscreen \
+        --output-filename "$out_dir/%Y-%m-%d_%H-%M-%S.png" \
+        --copy-command wl-copy \
+        --actions-on-enter save-to-clipboard,save-to-file,exit

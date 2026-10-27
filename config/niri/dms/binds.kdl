@@ -31,8 +31,13 @@ binds {
     Shift+Print     hotkey-overlay-title="Screenshot All"     { spawn "dms" "screenshot" "all"; }
     Ctrl+Print      hotkey-overlay-title="Screenshot Window"  { spawn "dms" "screenshot" "window"; }
 
+    // ── Screenshot annotation (satty) ────────────────────────────────────────
+    // helper 在 ~/.local/bin，而 niri --session 的 PATH 不含它；用 spawn-sh 让
+    // sh 展开 $HOME。spawn 不经过 shell，写 "$HOME/..." 会被当成字面路径。
+    Mod+Shift+Print hotkey-overlay-title="Screenshot Annotate" { spawn-sh "exec \"$HOME/.local/bin/screenshot-annotate\""; }
+
     // ── Screen recording (gpu-screen-recorder) ───────────────────────────────
-    Alt+Print       hotkey-overlay-title="Toggle Recording"   { spawn "gsr-toggle"; }
+    Alt+Print       hotkey-overlay-title="Toggle Recording"   { spawn-sh "exec \"$HOME/.local/bin/gsr-toggle\""; }
 
     // ── Window ───────────────────────────────────────────────────────────────
     Mod+D       hotkey-overlay-title="Overview"               { toggle-overview; }
@@ -103,8 +108,8 @@ binds {
     XF86AudioLowerVolume allow-when-locked=true { spawn "dms" "ipc" "audio" "decrement" "5"; }
     XF86AudioMute        allow-when-locked=true { spawn "dms" "ipc" "audio" "mute"; }
     XF86AudioMicMute     allow-when-locked=true { spawn "dms" "ipc" "audio" "micmute"; }
-    XF86MonBrightnessUp   allow-when-locked=true { spawn "dms-brightness" "increment"; }
-    XF86MonBrightnessDown allow-when-locked=true { spawn "dms-brightness" "decrement"; }
+    XF86MonBrightnessUp   allow-when-locked=true { spawn-sh "exec \"$HOME/.local/bin/dms-brightness\" increment"; }
+    XF86MonBrightnessDown allow-when-locked=true { spawn-sh "exec \"$HOME/.local/bin/dms-brightness\" decrement"; }
     XF86AudioPlay  { spawn "dms" "ipc" "mpris" "playPause"; }
     XF86AudioPause { spawn "dms" "ipc" "mpris" "playPause"; }
     XF86AudioNext  { spawn "dms" "ipc" "mpris" "next"; }

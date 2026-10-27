@@ -64,6 +64,7 @@ install.sh (root)
     ├── scripts/core/login.sh                # greetd + regreet + tuigreet
     ├── scripts/core/audio.sh                # PipeWire stack
     ├── scripts/core/system-services.sh      # bluetooth + avahi + power-profiles + NTP
+    ├── scripts/core/samba.sh                # Samba 共享（Windows 文件交换）
     ├── scripts/core/memory.sh               # swapfile + zswap 校验 + fstrim.timer
     ├── scripts/core/docker.sh               # docker + compose/buildx 插件 + jq
     ├── scripts/core/shell.sh                # zsh + neovim + alacritty + ...

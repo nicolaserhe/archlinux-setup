@@ -58,4 +58,25 @@ enable_system_service systemd-timesyncd.service
 # 缓慢 slew）。只 enable 的话要等下次开机，在那之前时钟一直是错的。
 start_system_service systemd-timesyncd.service
 
+# -- 包维护定时器 -------------------------------------------------------------
+# paccache.timer:       每周跑 `paccache -r`，每个包保留 3 个旧版本 —— 比
+#                       `pacman -Sc`（只留当前版本）温和，留出回滚窗口。未安装
+#                       包的缓存不在 `-r` 的范围内，需要时手动 `paccache -ruk0`。
+# pkgfile-update.timer: 每天刷新 pkgfile 自己的 files 数据库（command-not-found
+#                       钩子用）。不启用 pacman-contrib 的 filesdb-refresh.timer：
+#                       那是给 `pacman -F` 的第二份数据库，command-not-found
+#                       用不到，没必要多存一份。
+#
+# 只 enable 不 start：timer 由下次开机的 timers.target 拉起；当前这次安装里
+# pkgfile 的数据库在下面手动拉一次，command-not-found 立刻可用。
+header "Package maintenance timers"
+enable_system_service paccache.timer
+enable_system_service pkgfile-update.timer
+
+if _as_root pkgfile --update; then
+    success "pkgfile database updated"
+else
+    warn "pkgfile database update failed -- command-not-found uses the old database"
+fi
+
 success "System services done"

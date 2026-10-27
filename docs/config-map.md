@@ -34,10 +34,12 @@
 | `config/helpers/dms/brightness` | `~/.local/bin/dms-brightness` | `shell.sh`（亮度 wrapper，自动检测 backlight 设备） |
 | `config/helpers/git-health` | `~/.local/bin/git-health` | `shell.sh` |
 | `config/helpers/gsr-toggle` | `~/.local/bin/gsr-toggle` | `shell.sh`（gpu-screen-recorder 开关，MP4 60fps opus） |
+| `config/helpers/screenshot-annotate` | `~/.local/bin/screenshot-annotate` | `shell.sh`（选区截图 → satty 标注；Enter 复制并保存到 `~/Pictures/Screenshots`） |
 | `config/input/keyd.conf` | `/etc/keyd/default.conf` | `keyd.sh`（root） |
 | `config/matugen/templates/*.tera` | `~/.config/matugen/templates/` | `matugen.sh`（`copy_config_dir`，见下节） |
 | `config/niri/dms/binds.kdl` | `~/.config/niri/dms/binds.kdl` | `dms.sh`（niri keybinds, DMS IPC 集成） |
 | `config/niri/dms/windowrules.kdl` | `~/.config/niri/dms/windowrules.kdl` | `dms.sh` —— **仅首次播种**：该文件同时是 DMS 的窗口规则存储，DMS 会加 `@id` 标记后整体重写 |
+| `config/samba/smb.conf` | `/etc/samba/smb.conf` | `samba.sh`（root；`%H/Shared` + `valid users = %U`，不写死用户名） |
 | `config/shell/zshrc` | `~/.zshrc` | `shell.sh` |
 | `config/timesyncd/60-cn-ntp.conf` | `/etc/systemd/timesyncd.conf.d/60-cn-ntp.conf` | `system-services.sh`（root；国内 NTP 源） |
 

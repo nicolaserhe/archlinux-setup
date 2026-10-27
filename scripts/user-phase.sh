@@ -52,6 +52,7 @@ CORE_SCRIPTS=(
     login.sh
     audio.sh
     system-services.sh
+    samba.sh
     memory.sh
     docker.sh
     shell.sh
