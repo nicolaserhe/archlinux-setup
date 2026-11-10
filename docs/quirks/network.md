@@ -31,6 +31,21 @@ Linux 默认会从任意网卡应答 ARP。双网卡同网段时，NetworkManage
   `getent hosts win.local` / `ping win.local` 会失败，只有 `avahi-resolve` 能查。
 - `.local` 是 mDNS 保留域名，`NOTFOUND=return` 让查不到时直接失败，不回退 DNS。
 
+## Clash TUN 的 fake-IP 会劫持裸主机名
+
+Mousehop 的 client 写 `hostname = "win"`（不带 `.local`）时，名字不走 mDNS，而是落到
+系统 DNS；FlClash/mihomo 的 TUN 对域名先回一个 **fake-IP**（本机是 28.x 段），该地址被
+路由进 `FlClash` 设备，局域网里的 Windows 收不到。表现是 Mousehop 启动时先连一次
+注定失败的地址，随即用 `last_addr`（对端真实地址，Mousehop 自己记录）连上，功能不受
+影响，只是日志里多一次失败拨号。
+
+想省掉这次拨号：在**运行时** `~/.config/mousehop/config.toml` 的 `[[clients]]` 里填
+`ips = ["192.168.3.15"]`。这是机器本地状态（对端 DHCP），不进仓库 seed —— seed 保持
+`ips = []`，新机器靠 mDNS 发现 + `last_addr` 回退；对端换 IP 时这里跟着改。
+
+不用清 DNS 缓存也不用加静态路由：fake-IP 是 TUN 的正常机制，清了会重新生成。真要
+在源头规避，只能在 FlClash 的 `fake-ip-filter` 里排除 `win` / `*.local`，收益不大。
+
 ## mDNS 名字冲突
 
 avahi 和 Mousehop 内嵌的 mdns-sd 都可能想占 `archlinux.local`。Mousehop 争不过时会
