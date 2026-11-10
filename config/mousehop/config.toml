@@ -10,8 +10,10 @@ position = "right"
 hostname = "win"
 activate_on_startup = true
 # 防止光标碰到右边缘就抢键盘（抢走时本地 fcitx5 失焦、打不了字）。
-# 按住 Ctrl 推向该边缘才 handover；不要用 super：Mousehop 会把按住的修饰键
-# 原样转发给 Windows，Win 键会弹开始菜单（command_as_ctrl 在 Linux 发送端
-# 被强制关闭，挡不住）。
+# 按住 Alt 推向该边缘才 handover。不要用 control：Ctrl+Space 是切中文的键，
+# 光标停在右边缘时按它会被门控当成跨界请求，键盘直接被送到 Windows
+# （2026-11-10 实测）。不要用 super：Mousehop 会把按住的修饰键原样转发给
+# Windows，Win 键会弹开始菜单（command_as_ctrl 在 Linux 发送端被强制关闭，
+# 挡不住）。
 require_crossing_modifier = true
-crossing_modifier = "control"
+crossing_modifier = "alt"
