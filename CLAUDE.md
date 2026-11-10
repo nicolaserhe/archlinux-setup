@@ -73,6 +73,7 @@ install.sh (root)
     ├── scripts/core/fcitx.sh                # fcitx5 + rime-ice
     ├── scripts/core/keyd.sh                 # keyd key remapping
     ├── scripts/core/mousehop.sh             # Mousehop 键鼠共享（AUR + mDNS 名字）
+    ├── scripts/core/niri-focus-restore.sh   # 焦点兜底 watcher（Mousehop 捕获层失焦保险）
     ├── scripts/core/kdeconnect.sh           # kdeconnect + DMS 插件
     ├── scripts/core/flclash.sh              # FlClash + subscription import
     ├── scripts/core/boot.sh                 # GRUB matter theme

@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""Restore niri window focus when the input seat becomes free again.
+
+Mousehop's layer-shell capture overlay takes keyboard_interactivity
+"Exclusive" while it owns the seat, which unfocuses the local window;
+fcitx5 then sees focus:0 and the keyboard goes dead locally. In the
+observed releases niri restores focus by itself, but if it ever does not
+(an Exclusive/OnDemand layer unmaps without restoring focus), the
+window stays unfocused until something is clicked.
+
+This watcher follows niri's event stream and, whenever focus drops to
+null while no layer/overview/lock screen owns the seat, refocuses the
+last focused window. It is a safety net, not the primary fix: the
+primary fix is Mousehop's require_crossing_modifier gate.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import threading
+import time
+
+NIRI = "niri"
+POLL = 0.4              # recovery check interval
+BLOCKED_POLL = 1.5      # slower interval while a layer/overview/lock holds the seat
+RETRIES = 4             # focus-window attempts before the overview fallback
+RETRY_DELAY = 0.4
+SILENCE = 60            # probe niri after this many seconds without events
+MAX_CONNECT_FAILURES = 10
+MIN_HEALTHY_UPTIME = 30
+
+lock = threading.Lock()
+state = {
+    "last_focused": None,
+    "need_recovery": False,
+}
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def run(*args, timeout=3):
+    try:
+        return subprocess.run(
+            [NIRI, "msg", *args],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError,
+            UnicodeDecodeError) as e:
+        log(f"niri msg failed: {e}")
+        return None
+
+
+def niri_json(*args):
+    p = run("--json", *args)
+    if p is None or p.returncode != 0 or not p.stdout.strip():
+        return None
+    try:
+        return json.loads(p.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def current_focused_id():
+    d = niri_json("focused-window")
+    return d.get("id") if isinstance(d, dict) else None
+
+
+def windows_map():
+    """window id -> workspace id. None if the query failed."""
+    ws = niri_json("windows")
+    if ws is None:
+        return None
+    return {
+        w["id"]: w.get("workspace_id")
+        for w in ws
+        if isinstance(w, dict) and "id" in w
+    }
+
+
+def focused_workspaces():
+    """Workspace ids that currently have focus on their output."""
+    wss = niri_json("workspaces")
+    if wss is None:
+        return None
+    return {
+        w["id"] for w in wss
+        if isinstance(w, dict) and w.get("is_focused")
+    }
+
+
+def latest_focused_window_id():
+    """Best guess at the pre-loss window when nothing is focused:
+    the window most recently focused according to niri."""
+    ws = niri_json("windows") or []
+    best = None
+    for w in ws:
+        if not isinstance(w, dict) or w.get("id") is None:
+            continue
+        ts = w.get("focus_timestamp") or {}
+        key = (ts.get("secs", 0), ts.get("nanos", 0))
+        if best is None or key > best[0]:
+            best = (key, w["id"])
+    return best[1] if best else None
+
+
+def layers_hold_keyboard():
+    """True if any layer might own the keyboard (Exclusive or OnDemand).
+
+    On failure treat the seat as held (fail closed): never act on stale
+    information.
+    """
+    layers = niri_json("layers")
+    if layers is None:
+        return True
+    return any(
+        isinstance(l, dict)
+        and l.get("keyboard_interactivity") not in (None, "None")
+        for l in layers
+    )
+
+
+def overview_open():
+    d = niri_json("overview-state")
+    if not isinstance(d, dict):
+        return True   # fail closed
+    return bool(d.get("is_open"))
+
+
+def session_locked():
+    """Best effort: avoid refocusing behind a lock screen."""
+    sid = os.environ.get("XDG_SESSION_ID")
+    if not sid:
+        return False
+    try:
+        p = subprocess.run(
+            ["loginctl", "show-session", sid, "-p", "LockedHint", "--value"],
+            capture_output=True, text=True, timeout=2,
+        )
+        return p.stdout.strip().lower() == "yes"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return True   # fail closed
+
+
+def seats_are_free():
+    return not (session_locked() or overview_open() or layers_hold_keyboard())
+
+
+def action(*args):
+    run("action", *args)
+
+
+def try_focus(win_id):
+    action("focus-window", "--id", str(win_id))
+    time.sleep(0.3)
+    return current_focused_id() == win_id
+
+
+def try_overview_bounce(win_id):
+    # Opening and closing the overview reliably resets niri's focus state.
+    # Guard every step so we never close an overview the user opened.
+    if overview_open():
+        return False
+    action("toggle-overview")
+    time.sleep(0.35)
+    if not overview_open():
+        return False   # toggle was ignored; don't keep flipping blindly
+    action("toggle-overview")
+    time.sleep(0.4)
+    if overview_open():
+        action("toggle-overview")
+        time.sleep(0.3)
+    return current_focused_id() is not None
+
+
+def recovery_step():
+    time.sleep(POLL)
+    with lock:
+        if not state["need_recovery"]:
+            return
+        win_id = state["last_focused"]
+
+    if current_focused_id() is not None:
+        with lock:
+            state["need_recovery"] = False
+        return
+
+    if not seats_are_free():
+        # A layer/overview/lock owns the seat; wait without hot-polling.
+        time.sleep(BLOCKED_POLL - POLL)
+        return
+
+    wm = windows_map()
+    if wm is None:
+        time.sleep(1.0)
+        return
+    ws_id = wm.get(win_id)
+    if ws_id is None:
+        with lock:
+            state["need_recovery"] = False
+        log(f"focus lost; window {win_id} is gone, giving up")
+        return
+
+    fws = focused_workspaces()
+    if fws is None:
+        time.sleep(1.0)
+        return
+    if ws_id not in fws:
+        # The user deliberately moved to an empty workspace: no focused
+        # window is the intended state.
+        with lock:
+            state["need_recovery"] = False
+        log(f"focus lost; workspace {ws_id} is not focused (user moved), giving up")
+        return
+
+    restored = False
+    for _ in range(RETRIES):
+        if current_focused_id() is not None:
+            restored = True
+            break
+        if not seats_are_free():
+            break
+        if try_focus(win_id):
+            restored = True
+            break
+        time.sleep(RETRY_DELAY)
+
+    if not restored and seats_are_free():
+        restored = try_overview_bounce(win_id)
+
+    if restored:
+        log(f"focus restored (wanted {win_id}, now {current_focused_id()})")
+        with lock:
+            state["need_recovery"] = False
+    else:
+        time.sleep(1.5)
+
+
+def recover_loop():
+    while True:
+        try:
+            recovery_step()
+        except Exception as e:  # never let the thread die silently
+            log(f"recovery loop error: {e!r}")
+            time.sleep(1)
+
+
+def event_loop():
+    """Consume the event stream until it ends. Returns (rc, uptime)."""
+    start = time.monotonic()
+    proc = subprocess.Popen(
+        [NIRI, "msg", "--json", "event-stream"],
+        stdout=subprocess.PIPE, text=True,
+    )
+    assert proc.stdout is not None
+
+    last_event = [time.monotonic()]
+    stop = threading.Event()
+
+    def watchdog():
+        # A hung niri would otherwise block the reader forever and the
+        # service would never be restarted by systemd.
+        while not stop.wait(10):
+            if time.monotonic() - last_event[0] < SILENCE:
+                continue
+            probe = run("--json", "overview-state")
+            if probe is None or probe.returncode != 0:
+                log("niri unresponsive, dropping event stream")
+                proc.kill()
+                return
+            last_event[0] = time.monotonic()
+
+    threading.Thread(target=watchdog, daemon=True).start()
+
+    try:
+        for line in proc.stdout:
+            last_event[0] = time.monotonic()
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if "WindowFocusChanged" in ev:
+                win_id = ev["WindowFocusChanged"].get("id")
+                with lock:
+                    if win_id is not None:
+                        state["last_focused"] = win_id
+                        state["need_recovery"] = False
+                    else:
+                        # Focus dropped to null. An exclusive layer may be
+                        # holding the seat (Mousehop capture); the recovery
+                        # loop waits until it is gone before acting.
+                        state["need_recovery"] = True
+
+            elif "WindowClosed" in ev:
+                win_id = ev["WindowClosed"].get("id")
+                with lock:
+                    if win_id == state["last_focused"]:
+                        state["last_focused"] = None
+                        state["need_recovery"] = False
+
+            elif "WindowsChanged" in ev:
+                for w in ev["WindowsChanged"].get("windows", []):
+                    if isinstance(w, dict) and w.get("is_focused"):
+                        with lock:
+                            state["last_focused"] = w.get("id")
+    finally:
+        stop.set()
+        rc = proc.wait()
+    return rc, time.monotonic() - start
+
+
+def main():
+    with lock:
+        fid = current_focused_id()
+        state["last_focused"] = (
+            fid if fid is not None else latest_focused_window_id()
+        )
+
+    threading.Thread(target=recover_loop, daemon=True).start()
+
+    failures = 0
+    while True:
+        rc, uptime = event_loop()
+        # A connection that dies quickly is a failure even though niri
+        # always sends a few initial events.
+        failures = 0 if uptime >= MIN_HEALTHY_UPTIME else failures + 1
+        log(f"event stream ended (rc={rc}, uptime={uptime:.0f}s), "
+            f"reconnecting (failure {failures})")
+        if failures >= MAX_CONNECT_FAILURES:
+            # Most likely a stale NIRI_SOCKET (niri restarted and got a new
+            # socket path). Exit so systemd restarts us with a freshly
+            # imported environment.
+            log("cannot keep an event stream open, exiting for a clean restart")
+            sys.exit(1)
+        time.sleep(1)
+        with lock:
+            fid = current_focused_id()
+            if fid is not None:
+                state["last_focused"] = fid
+            else:
+                state["last_focused"] = (
+                    state["last_focused"] or latest_focused_window_id()
+                )
+                state["need_recovery"] = True
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)

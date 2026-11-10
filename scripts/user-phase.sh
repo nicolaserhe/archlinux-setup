@@ -61,6 +61,7 @@ CORE_SCRIPTS=(
     fcitx.sh
     keyd.sh
     mousehop.sh
+    niri-focus-restore.sh
     kdeconnect.sh
     flclash.sh
     boot.sh
