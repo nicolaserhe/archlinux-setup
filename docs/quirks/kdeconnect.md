@@ -4,7 +4,7 @@
 
 ## 设备发现
 
-- **别用 avahi 判断对端在不在**。实测 `avahi-browse -rtp _kdeconnect._udp` 只列出本机自己，对端 win（192.168.1.3）一条记录都没有 —— 而它当时是活的。判断对端用 TCP 探测：`timeout 2 bash -c 'echo >/dev/tcp/<ip>/1716'`（win 实测 445/139/1716 都开）。
+- **别用 avahi 判断对端在不在**。实测 `avahi-browse -rtp _kdeconnect._udp` 只列出本机自己，对端 win（`win.local`，两边都是 DHCP，地址会变）一条记录都没有 —— 而它当时是活的。判断对端用 TCP 探测：`timeout 2 bash -c 'echo >/dev/tcp/win.local/1716'`（win 实测 445/139/1716 都开）。
 - **守护进程重启后会自己重新发现**，不需要手动干预。实测 restart 后同一秒日志就有 `new capabilities for "win"`，`kdeconnect-cli -l` 直接报 `reachable`。
 - 真发现不到时的第一条恢复动作：`kdeconnect-cli --refresh`（强制重播身份广播）。
 

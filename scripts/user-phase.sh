@@ -60,6 +60,7 @@ CORE_SCRIPTS=(
     matugen.sh
     fcitx.sh
     keyd.sh
+    mousehop.sh
     kdeconnect.sh
     flclash.sh
     boot.sh

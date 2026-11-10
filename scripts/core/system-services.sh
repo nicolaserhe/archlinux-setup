@@ -14,13 +14,15 @@ source "$REPO_DIR/lib/svc.sh"
 # -- 包安装 -------------------------------------------------------------------
 # bluez:                 Linux 蓝牙协议栈
 # bluez-utils:           蓝牙管理命令行工具（bluetoothctl）
-# avahi:                 局域网 mDNS/DNS-SD 服务（KDE Connect 设备发现依赖）
+# avahi:                 局域网 mDNS/DNS-SD 服务（KDE Connect / Mousehop 发现依赖）
+# nss-mdns:              glibc NSS 插件，让本机用 avahi 解析 .local 名字
 # power-profiles-daemon: 电源性能模式管理
 header "System service packages"
 pacman_install \
     bluez \
     bluez-utils \
     avahi \
+    nss-mdns \
     power-profiles-daemon
 
 # -- 启用服务 -----------------------------------------------------------------
@@ -29,6 +31,26 @@ enable_system_service bluetooth.service
 
 header "Avahi"
 enable_system_service avahi-daemon.service
+
+# -- .local 名字解析 ----------------------------------------------------------
+# nss-mdns 装完还要改 /etc/nsswitch.conf 的 hosts 行才生效，仓库拥有这份文件、
+# 每次覆盖。没有 mdns_minimal 时 `getent hosts win.local` 会失败（只有
+# avahi-resolve 能查），按名字访问对端（ssh/smbclient）就只能退化回写 IP。
+header "mDNS name resolution (nsswitch)"
+install_config_root \
+    "$REPO_DIR/config/nsswitch/nsswitch.conf" \
+    /etc/nsswitch.conf 644
+
+# -- 多网卡 ARP ---------------------------------------------------------------
+# 有线/无线同网段时 Linux 默认跨网卡应答 ARP，NM 的 ACD 会把本机另一张网卡的
+# 应答误判成地址冲突，decline 掉 DHCP 地址并撤掉默认路由。详见
+# docs/quirks/network.md。
+header "Multihomed ARP (sysctl)"
+install_config_root \
+    "$REPO_DIR/config/sysctl/90-multihome-arp.conf" \
+    /etc/sysctl.d/90-multihome-arp.conf 644
+_as_root sysctl -q -p /etc/sysctl.d/90-multihome-arp.conf
+success "sysctl applied: 90-multihome-arp.conf"
 
 header "Power profiles"
 enable_system_service power-profiles-daemon.service

@@ -72,6 +72,7 @@ install.sh (root)
     ├── scripts/core/matugen.sh              # must run AFTER dms.sh
     ├── scripts/core/fcitx.sh                # fcitx5 + rime-ice
     ├── scripts/core/keyd.sh                 # keyd key remapping
+    ├── scripts/core/mousehop.sh             # Mousehop 键鼠共享（AUR + mDNS 名字）
     ├── scripts/core/kdeconnect.sh           # kdeconnect + DMS 插件
     ├── scripts/core/flclash.sh              # FlClash + subscription import
     ├── scripts/core/boot.sh                 # GRUB matter theme
@@ -134,6 +135,7 @@ Proxy (mihomo) 装在 step 4，由 trap EXIT 卸载 —— 退出后系统上不
 - [docs/quirks/apps.md](docs/quirks/apps.md) —— Tauri / WebKit / Playwright / Claude Code MCP / FlClash / Proxy
 - [docs/quirks/docker.md](docs/quirks/docker.md) —— containerd image store（`/var/lib/docker` 看着是空的）/ 发布端口绕过主机防火墙 / `-p` 的 `HostIp` 空串陷阱
 - [docs/quirks/system.md](docs/quirks/system.md) —— keyd / boot / system services / `run_step` 行为
+- [docs/quirks/network.md](docs/quirks/network.md) —— 双网卡 DHCP / ARP flux / `.local` 名字解析 / mDNS 名字冲突
 
 ## Portal backend: wlr
 

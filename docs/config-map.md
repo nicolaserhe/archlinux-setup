@@ -37,10 +37,13 @@
 | `config/helpers/screenshot-annotate` | `~/.local/bin/screenshot-annotate` | `shell.sh`（选区截图 → satty 标注；Enter 复制并保存到 `~/Pictures/Screenshots`） |
 | `config/input/keyd.conf` | `/etc/keyd/default.conf` | `keyd.sh`（root） |
 | `config/matugen/templates/*.tera` | `~/.config/matugen/templates/` | `matugen.sh`（`copy_config_dir`，见下节） |
+| `config/mousehop/config.toml` | `~/.config/mousehop/config.toml` | `mousehop.sh` —— **仅首次播种**：授权指纹与 `last_addr` 由运行时写入 |
 | `config/niri/dms/binds.kdl` | `~/.config/niri/dms/binds.kdl` | `dms.sh`（niri keybinds, DMS IPC 集成） |
 | `config/niri/dms/windowrules.kdl` | `~/.config/niri/dms/windowrules.kdl` | `dms.sh` —— **仅首次播种**：该文件同时是 DMS 的窗口规则存储，DMS 会加 `@id` 标记后整体重写 |
+| `config/nsswitch/nsswitch.conf` | `/etc/nsswitch.conf` | `system-services.sh`（root；hosts 行加 `mdns_minimal`，本机可用 `.local` 名字） |
 | `config/samba/smb.conf` | `/etc/samba/smb.conf` | `samba.sh`（root；`%H/Shared` + `valid users = %U`，不写死用户名） |
 | `config/shell/zshrc` | `~/.zshrc` | `shell.sh` |
+| `config/sysctl/90-multihome-arp.conf` | `/etc/sysctl.d/90-multihome-arp.conf` | `system-services.sh`（root；双网卡同网段 ARP flux / ACD 误判） |
 | `config/timesyncd/60-cn-ntp.conf` | `/etc/systemd/timesyncd.conf.d/60-cn-ntp.conf` | `system-services.sh`（root；国内 NTP 源） |
 
 ## `config/fcitx5/rime/default.custom.yaml`

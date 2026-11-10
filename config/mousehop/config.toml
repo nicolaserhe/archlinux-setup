@@ -1,0 +1,11 @@
+# 部署目标：~/.config/mousehop/config.toml（scripts/core/mousehop.sh，仅首次播种）
+#
+# 对端只用 hostname 走 mDNS 发现，不写死 IP。授权指纹
+# （authorized_fingerprints）和 last_addr 由 Mousehop 运行时写入本机这份文件，
+# 属于机器私有状态，仓库不保存、也不覆盖。
+port = 4252
+
+[[clients]]
+position = "right"
+hostname = "win"
+activate_on_startup = true
