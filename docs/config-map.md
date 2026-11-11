@@ -34,6 +34,7 @@
 | `config/helpers/dms/brightness` | `~/.local/bin/dms-brightness` | `shell.sh`（亮度 wrapper，自动检测 backlight 设备） |
 | `config/helpers/git-health` | `~/.local/bin/git-health` | `shell.sh` |
 | `config/helpers/gsr-toggle` | `~/.local/bin/gsr-toggle` | `shell.sh`（gpu-screen-recorder 开关，MP4 60fps opus） |
+| `config/helpers/mousehop-kvm-guard/` | `mousehop-kvm-guard.py` → `~/.local/bin/mousehop-kvm-guard`；目录整体另部署到 `~/.cache/mousehop-kvm-guard/`（编译源） | `mousehop-kvm-guard.sh`（`install_config` + `copy_config_dir`；跟随硬件 KVM 开关，见该模块注释） |
 | `config/helpers/niri-focus-restore` | `~/.local/bin/niri-focus-restore` | `niri-focus-restore.sh`（焦点兜底 watcher，见该模块注释） |
 | `config/helpers/screenshot-annotate` | `~/.local/bin/screenshot-annotate` | `shell.sh`（选区截图 → satty 标注；Enter 复制并保存到 `~/Pictures/Screenshots`） |
 | `config/input/keyd.conf` | `/etc/keyd/default.conf` | `keyd.sh`（root） |

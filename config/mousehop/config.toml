@@ -17,3 +17,7 @@ activate_on_startup = true
 # 挡不住）。
 require_crossing_modifier = true
 crossing_modifier = "alt"
+# 剪切板共享（文本）：发端是这里的 clipboard_send，收端是授权指纹条目里的
+# clipboard_receive，两边都为 true 才会传输，默认都是 false。接收端字段按
+# 指纹存放（机器私有状态），仓库不播种，配对后在 GUI 里打开。
+clipboard_send = true
