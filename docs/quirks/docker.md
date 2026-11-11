@@ -20,7 +20,7 @@
 
 ## 日志上限：`/etc/docker/daemon.json` 只对新容器生效
 
-`docker.sh` 从 2026-10-12 起部署 `/etc/docker/daemon.json`（`json-file` + `max-size 10m` / `max-file 3`，即每容器 30MB 封顶）。原先的判断是"低频用法够不上日志轮转那类事故"，实测不成立 —— 本机 `valkey` 连续跑了两小时，`postgres` 是停了 13 天的长期项目容器，而 json-file driver 默认**无上限**。
+`docker.sh` 从 2026-10-12 起部署 `/etc/docker/daemon.json`（`json-file` + `max-size 10m` / `max-file 3`，即每容器 30MB 封顶）。原先的判断是"低频用法够不上日志轮转那类事故"，实测不成立 —— 本机当时有长期运行的项目容器（一个连跑了两小时，另一个停了 13 天），而 json-file driver 默认**无上限**。
 
 两个生效时点，都比直觉晚：
 
@@ -35,7 +35,7 @@
 
 `-p` 发布的端口走 iptables **nat 表的 PREROUTING DNAT**，转发进容器的流量**不经过 `filter`/`INPUT`**。两件事叠加就是个洞：主机没开防火墙 + 容器绑 `0.0.0.0` = 该端口直接暴露在 LAN 上；而且**事后补一个基于 `filter` 链的防火墙也拦不住**（DNAT 在它前面）。能限住它的只有三条路：绑 `127.0.0.1`（首选）、在 `DOCKER-USER` 链里写规则、或者干脆不 `-p`。
 
-本机 2026-10-12 按这条清理过：`mysql`（3306）停用删除，`valkey`（6379）从 `-p 6379:6379` 改成 `-p 127.0.0.1:6379:6379`。`postgres` 仍是 `-p 5432:5432`，但容器已停（13 天），处于不监听状态 —— 它一旦被启动就又是 0.0.0.0。同类改动见 [apps.md](apps.md) 里 `usb/sub2clash/convert.sh` 的 subconverter 容器。
+本机 2026-10-12 按这条清理过：停用并删除一个监听 3306 的数据库容器，把一个监听 6379 的缓存容器从 `-p 6379:6379` 改成 `-p 127.0.0.1:6379:6379`；另一个 5432 的数据库容器当时已停，处于不监听状态。同类改动见 [apps.md](apps.md) 里 `usb/sub2clash/convert.sh` 的 subconverter 容器。
 
 ### 陷阱：`-p 5432:5432` 的 `HostIp` 是空串，不是 `0.0.0.0`
 

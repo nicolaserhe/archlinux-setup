@@ -9,8 +9,8 @@
 #
 # 落 /etc/docker/daemon.json（2026-10-12 加，反转了原先"不加"的判断）。原来写的
 # 理由是"偶尔 build 镜像 + 两个开发容器，够不上日志轮转那一类事故" —— 实测本机
-# 不是这个用法：`valkey` 连续跑了两小时（`postgres` 是停了 13 天
-# 的长期项目容器），而 json-file driver 默认**无上限**，这类容器挂几周就能把
+# 当时不是这个用法：有连跑数小时的项目容器，也有停了十几天的，而
+# json-file driver 默认**无上限**，这类容器挂几周就能把
 # /var/lib/docker 吃到几十 GB（真实占用看 `docker system df`，目录本身读不进去 ——
 # 见 docs/quirks/docker.md）。
 #
