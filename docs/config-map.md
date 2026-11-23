@@ -24,7 +24,8 @@
 | `config/docker/daemon.json` | `/etc/docker/daemon.json` | `docker.sh`（root；只写日志上限，理由与生效时机见 [quirks/docker.md](quirks/docker.md)） |
 | `config/fcitx5/classicui.conf` | `~/.config/fcitx5/conf/classicui.conf` | `fcitx.sh`（字体 + `Theme=Matugen`） |
 | `config/fcitx5/profile` | `~/.config/fcitx5/profile` | `fcitx.sh` —— **仅首次播种**：fcitx5 会把整个文件按自己的格式重写，覆盖它等于每次重跑 install 都重置用户的输入法顺序 |
-| `config/fcitx5/rime/default.custom.yaml` | `~/.local/share/fcitx5/rime/default.custom.yaml` | `fcitx.sh` |
+| `config/fcitx5/rime/default.custom.yaml` | `~/.local/share/fcitx5/rime/default.custom.yaml` | `fcitx.sh`（万象官方预设入口） |
+| `config/fcitx5/rime/wanxiang_pro.custom.yaml` | `~/.local/share/fcitx5/rime/wanxiang_pro.custom.yaml` | `fcitx.sh` —— **仅首次播种**：`/jjf`、`/zjf`、`/flypy` 运行时会改写这个文件 |
 | `config/flatpak/fonts.conf` | `~/.config/fontconfig/flatpak-cjk.conf` | `fonts.sh`（**只**经 flatpak override 的 `FONTCONFIG_FILE` 给沙箱用；刻意不占 `fonts.conf` 那个主机用户级路径） |
 | `config/fontconfig/60-emoji.conf` | `/etc/fonts/conf.d/60-emoji.conf` | `fonts.sh`（Noto Color Emoji 前置，root） |
 | `config/fontconfig/65-cjk-sc.conf` | `/etc/fonts/conf.d/65-cjk-sc.conf` | `fonts.sh`（CJK fallback 顺序，root） |
@@ -50,7 +51,13 @@
 
 ## `config/fcitx5/rime/default.custom.yaml`
 
-rime 词库本身**不在仓库里**：装的是 archlinuxcn 的 `rime-ice-double-pinyin-flypy-git`（词库落在 `/usr/share/rime-data/`，由 pacman 升级）。仓库只部署用户目录里的这个 patch 文件 —— 它必须和包变体对上（`schema_list: double_pinyin_flypy`），且是 rime 唯一的配置入口（`rime_ice.custom.yaml` 之类留给用户自己写，不在仓库）。用户目录里只该有用户自己的东西 —— rime-ice 的仓库文件一份都不往那儿放（rime 查文件时用户目录优先，副本会一直 shadow 掉 `/usr/share/rime-data` 里的同名文件）。
+rime 词库本身**不在仓库里**：装的是 archlinuxcn 的 `rime-wanxiang-pro-flypy` + `rime-wanxiang-pro-data-flypy-fuzhu`。后者提供鹤形辅助数据，并带入 `pro-dict-flypy-fuzhu`、`pro-data`；`pro-data` 又依赖 `rime-wanxiang-gram-zh-hans`（373MB 语法模型）。词库/模型落在 `/usr/share/rime-data/`，由 pacman 升级；`build/wanxiang_pro.table.bin`（63MB）是包内预编译好的，用户目录首次启动只做轻量 deploy。
+
+`default.custom.yaml` 只做一件事：`__include: wanxiang_pro_suggestion:/`，启用官方预设（`schema_list` 只有 `wanxiang_pro`、6 候选、7/8/9/0 声调、`-`/`=` 翻页、`[`/`]` 以词定字）。**不要**在这里加 `[` `]` 翻页——会抢以词定字。
+
+`wanxiang_pro.custom.yaml` 是用户配置面：小鹤双拼 + 直接辅助的 algebra、`menu/page_size`。`/jjf`、`/zjf`、`/flypy` 运行时会改写它，所以用 `copy_config_seed` 只播种、不覆盖。
+
+用户目录里只该有用户自己的东西 —— 万象的仓库文件一份都不往那儿放（rime 查文件时用户目录优先，副本会一直 shadow 掉 `/usr/share/rime-data` 里的同名文件）。
 
 ## 机器私有文件：`~/.config/zsh/local.zsh`
 

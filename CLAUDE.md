@@ -70,7 +70,7 @@ install.sh (root)
     ├── scripts/core/shell.sh                # zsh + neovim + alacritty + ...
     ├── scripts/core/dms.sh                  # DMS + GTK theming
     ├── scripts/core/matugen.sh              # must run AFTER dms.sh
-    ├── scripts/core/fcitx.sh                # fcitx5 + rime-ice
+    ├── scripts/core/fcitx.sh                # fcitx5 + 万象 Pro（小鹤 + 鹤形）
     ├── scripts/core/keyd.sh                 # keyd key remapping
     ├── scripts/core/mousehop.sh             # Mousehop 键鼠共享（AUR + mDNS 名字）
     ├── scripts/core/mousehop-kvm-guard.sh   # 跟随硬件 KVM：切走停 mousehop，切回重启并居中光标

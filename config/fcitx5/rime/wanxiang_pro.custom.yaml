@@ -1,0 +1,11 @@
+# 万象拼音 PRO 用户配置
+# 来源：官方 custom/wanxiang_pro.custom.yaml 模板
+# 注意：方案保持小鹤双拼，辅助码为直接辅助；可用 /jjf 切间接、/flypy 切双拼方案
+patch:
+  speller/algebra:
+    __patch:
+      - wanxiang_algebra:/pro/小鹤双拼
+      - wanxiang_algebra:/pro/直接辅助
+
+  # 候选数量（7/8/9/0 为声调键，上限 6）
+  menu/page_size: 6

@@ -1,6 +1,14 @@
 # Input method / fonts quirks
 
-fcitx5 + rime-ice 输入法、终端字体、CJK/emoji 渲染相关坑。
+fcitx5 + 万象 Pro 输入法、终端字体、CJK/emoji 渲染相关坑。
+
+## 万象 Pro
+
+- **候选页固定 6 个，7/8/9/0 是声调键**：不要照搬雾凇的 `menu/page_size: 9`；也不要把 `[` `]` 绑成翻页——这两个键留给以词定字（`[` 首字、`]` 末字），绑了会和万象的处理器抢键。
+- **直接辅助的固有歧义**：辅助码本身可能撞合法音节（好 = `nz` = `nou`），`hcnz` 会切成“好耨”。用声调 `hc9`、末尾 `/` 聚拢，或切间接辅助 `/jjf`（`hc/nz`）。
+- **`/jjf`、`/zjf`、`/flypy` 依赖 `wanxiang_pro.custom.yaml`**：文件不存在时命令只提示“未找到当前配置”。仓库用 seed 部署，重跑 install 不覆盖运行时的辅助码/双拼选择。
+- **keyd caps↔esc 互换后 Rime 的语义也跟着换**：物理 Esc 发 CapsLock（切中英并清空编码），物理 CapsLock 发 Esc（只清空）。这是刻意的键位交换，不是故障。
+- **升级后自动 redeploy**：`fcitx5-rime-reload.path` 监视 `/usr/share/rime-data` 的关键产物，pacman 更新万象包后自动 `try-restart fcitx5`。
 
 ## Icon cache
 

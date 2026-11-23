@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# scripts/core/fcitx.sh -- Fcitx5 + 雾凇拼音
+# scripts/core/fcitx.sh -- Fcitx5 + 万象拼音 Pro（小鹤双拼 + 鹤形辅助码）
 #
 # 配置文件源：
-#   config/fcitx5/classicui.conf              → ~/.config/fcitx5/conf/classicui.conf
-#   config/fcitx5/profile                     → ~/.config/fcitx5/profile
-#   config/fcitx5/rime/default.custom.yaml    → <rime_dir>/default.custom.yaml
-#   config/autostart/org.fcitx.Fcitx5.desktop → ~/.config/autostart/（屏蔽 XDG autostart）
+#   config/fcitx5/classicui.conf                 → ~/.config/fcitx5/conf/classicui.conf
+#   config/fcitx5/profile                        → ~/.config/fcitx5/profile
+#   config/fcitx5/rime/default.custom.yaml       → <rime_dir>/default.custom.yaml
+#   config/fcitx5/rime/wanxiang_pro.custom.yaml  → <rime_dir>/wanxiang_pro.custom.yaml（仅首次播种）
+#   config/autostart/org.fcitx.Fcitx5.desktop    → ~/.config/autostart/（屏蔽 XDG autostart）
 #
 # 配色主题由 matugen 模板生成（输出到 themes/Matugen/）。
 # theme.conf 变化时由 fcitx5-theme-reload.path 监视并通过 systemd try-restart fcitx5
@@ -215,19 +216,70 @@ EOF
 add_user_service_wants fcitx5-theme-reload.path graphical-session.target
 unset _theme_conf
 
-# -- 雾凇拼音 -----------------------------------------------------------------
-# 装 archlinuxcn 的包（pkgbase `rime-ice-git` 的 split package），不从 GitHub
-# clone。上游 README 那套是给手工装的，搬进自动化安装会带出一串问题：词库得从
-# /tmp 拷进用户目录、重跑一次那句 `rm -rf` 就把用户词频（`*.userdb`）清光、
-# 更新只能靠自建 timer 里一句 `git pull`。包管理版把词库装进 /usr/share/rime-data
-# （rime 的 shared data dir，fcitx5-rime 从这里读），用户目录只剩用户自己的东西
-# —— 三件事一起消失：升级交给 pacman，用户数据没人碰，timer 退休。
+# -- Rime 热重载（path unit）--------------------------------------------------
+# pacman 更新万象/共享数据后，fcitx5-rime 不会自动重新 deploy；监视 shared data
+# 的关键产物，变化时 try-restart fcitx5。目录本身也监视：pacman 以 rename 方式
+# 落文件，目录 mtime 会变。
+header "Fcitx5 rime hot-reload (path unit)"
+write_user_unit fcitx5-rime-reload.path <<'EOF'
+[Unit]
+Description=Watch Rime shared data for wanxiang package updates
+
+[Path]
+PathChanged=/usr/share/rime-data
+PathChanged=/usr/share/rime-data/build/wanxiang_pro.table.bin
+PathChanged=/usr/share/rime-data/wanxiang-lts-zh-hans.gram
+PathChanged=/usr/share/rime-data/wanxiang_pro.schema.yaml
+PathChanged=/usr/share/rime-data/wanxiang_pro_suggestion.yaml
+PathChanged=/usr/share/rime-data/wanxiang_algebra.yaml
+PathChanged=/usr/lib/fcitx5/librime.so
+Unit=fcitx5-rime-reload.service
+
+[Install]
+WantedBy=graphical-session.target
+EOF
+
+write_user_unit fcitx5-rime-reload.service <<'EOF'
+[Unit]
+Description=Reload fcitx5 after Rime/wanxiang package update
+
+[Service]
+Type=oneshot
+# pacman 一次性替换多个文件；等 2 秒吸收同一事务里的连续变化
+ExecStartPre=/bin/sleep 2
+# try-restart：fcitx5 没在跑就不拉起；正常时重启一次完成 Rime redeploy
+ExecStart=/usr/bin/systemctl --user try-restart fcitx5.service
+EOF
+
+add_user_service_wants fcitx5-rime-reload.path graphical-session.target
+
+# -- 万象拼音 Pro ------------------------------------------------------------
+# 装 archlinuxcn 的包，不从 GitHub clone：词库/模型落在 /usr/share/rime-data
+# （rime 的 shared data dir，fcitx5-rime 从这里读），升级交给 pacman，用户目录
+# 只剩用户自己的配置与词频。
+#
+# 两个显式包：
+#   rime-wanxiang-pro-flypy              方案（小鹤双拼 + 直接辅助的默认 algebra）
+#   rime-wanxiang-pro-data-flypy-fuzhu   鹤形辅助数据
+# 后者 Provides 虚拟依赖 rime-wanxiang-pro-data-fuzhu（pro-flypy 声明的依赖），
+# 所以必须显式装；它会带入 pro-dict-flypy-fuzhu、pro-data，而 pro-data 又依赖
+# rime-wanxiang-gram-zh-hans（373MB 语法模型）。安装后约 520MB。
+#
+# 预编译主表 build/wanxiang_pro.table.bin（63MB）由包提供；用户目录首次启动只做
+# 轻量 deploy（编译用户词典），不必在 install 阶段跑 rime_deployer。
 #
 # 变体必须和下面 default.custom.yaml 的 schema_list 对上（flypy = 小鹤双拼）；
-# 各变体包互相 conflicts，装错变体得先卸。
-header "rime-ice"
-pacman_install rime-ice-double-pinyin-flypy-git
-success "rime-ice installed: /usr/share/rime-data"
+# 各 Pro 变体包互相 conflicts，装错变体得先卸。
+#
+# 已有机器若还装着雾凇包，脚本不自动卸（属破坏性操作），只提示。
+header "wanxiang pinyin pro"
+if pacman -Qq rime-ice-double-pinyin-flypy-git >/dev/null 2>&1; then
+    warn "rime-ice-double-pinyin-flypy-git is still installed; remove it: sudo pacman -R rime-ice-double-pinyin-flypy-git"
+fi
+pacman_install \
+    rime-wanxiang-pro-flypy \
+    rime-wanxiang-pro-data-flypy-fuzhu
+success "wanxiang pro installed: /usr/share/rime-data"
 
 header "Rime custom config"
 # 目标路径写全而不复用变量：漂移检查（just drift）靠调用点的字面量
@@ -236,8 +288,10 @@ copy_config \
     "$REPO_DIR/config/fcitx5/rime/default.custom.yaml" \
     "$HOME/.local/share/fcitx5/rime/default.custom.yaml"
 
-# 词库编译：上游包已在 /usr/share/rime-data/build/ 带好预编译 .bin，用户目录
-# 那份由 fcitx5 首次启动自己 deploy（只编译用户词典，很快）。install 阶段再跑
-# 一遍 rime_deployer 只是把同样的活干两次。
+# wanxiang_pro.custom.yaml 会被运行时命令 /jjf、/zjf、/flypy 改写，所以只
+# seed（文件不存在时播种），重跑 install 不覆盖用户的辅助码/双拼选择。
+copy_config_seed \
+    "$REPO_DIR/config/fcitx5/rime/wanxiang_pro.custom.yaml" \
+    "$HOME/.local/share/fcitx5/rime/wanxiang_pro.custom.yaml"
 
 success "fcitx5 done"
