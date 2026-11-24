@@ -30,10 +30,9 @@ pacman_install \
     tree-sitter-cli
 
 # -- Node.js -------------------------------------------------------------------
-header "Node.js"
-pacman_install \
-    fnm \
-    yarn
+# Node 用系统 nodejs/npm（见 pacman-base.sh）；不装 fnm/yarn。
+# fnm 之前装了但没接入 shell，node18 数据闲置；yarn classic 无任何 lockfile。
+# 需要多版本 Node 时再考虑 mise/fnm（见 docs/decisions.md）。
 
 # -- CLI 工具 ------------------------------------------------------------------
 header "CLI utilities"

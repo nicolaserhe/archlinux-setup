@@ -114,8 +114,9 @@ pacman_install \
     cava
 
 # -- 开发语言 -----------------------------------------------------------------
+# uv: Python 包/项目管理（extra；替代 ~/.local/bin 的 standalone installer）
 header "Dev languages"
-pacman_install go rust nodejs npm
+pacman_install go rust nodejs npm uv
 
 # -- 开发工具链 ---------------------------------------------------------------
 # clang:       C/C++ 编译器，AUR 包编译依赖（rust -sys binding 等需要）
@@ -170,12 +171,19 @@ pacman_install \
 # celluloid:          mpv GTK 前端（视频播放器）
 # gnome-calculator:   GTK4 计算器
 # gnome-disk-utility: 图形化磁盘管理（格式化/挂载/SMART）
+# sushi:              空格键快速预览文件（GNOME Sushi）
+# nautilus-image-converter: 右键批量缩放/旋转图片
+# 不装 nautilus-share：usershare 机制未配置（见 docs/decisions.md），
+# ~/Shared 静态共享已覆盖与 Windows 交换文件的需求。
 # 不装 gammastep / cliphist：夜间模式与剪贴板历史 DMS 自带
 # （`dms ipc call night` / `dms ipc call clipboard`，Mod+V 已绑后者），
 # 见 docs/decisions.md。
 header "Base desktop apps"
 pacman_install \
     nautilus \
+    sushi \
+    nautilus-share \
+    nautilus-image-converter \
     gpu-screen-recorder \
     localsend \
     file-roller \

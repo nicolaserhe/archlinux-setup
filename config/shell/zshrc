@@ -146,3 +146,9 @@ fi
 # sdkman、JDK、Android SDK、Flutter 这些绑定本机 $HOME 路径的 env —— 一律写在
 # 这个文件里。它不由仓库部署也不被覆盖，重跑 install 不会再冲掉工具链环境。
 [[ -f "$HOME/.config/zsh/local.zsh" ]] && source "$HOME/.config/zsh/local.zsh"
+
+# ── PATH 去重 ────────────────────────────────────────────────────────────────
+# local.zsh 会把 JDK/Android/Flutter 等路径前置到 PATH；嵌套 shell 会重复。
+# `export PATH=...` 是标量赋值，typeset -U path 单独不够，必须显式 (u) 去重。
+path=(${(u)path})
+export PATH

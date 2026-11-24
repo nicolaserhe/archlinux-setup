@@ -82,6 +82,7 @@ APP_SCRIPTS=(
     chrome
     dbx
     deskflow
+    nautilus
     rendercv
     recordly
     yaak
